@@ -16,7 +16,7 @@ the goal of this document is to provide a reproducible runbook that another poep
 
    this is step by step, the installation process used as the base for this linux project.    
    * install VirtualBox
-   * download the Debian ISO
+   * download the [Debian ISO](https://www.debian.org/download)
    * create a new VM
    * allocate a virtual disk of at least 20-25 GB 
    * select the Debian ISO
@@ -44,8 +44,8 @@ the goal of this document is to provide a reproducible runbook that another poep
       - swap: 1 GB, used as swap   
       - leave the remaining space unallocated in the volume group (VG)  
    * write the partition changes to disk  
-   * decline the package usage survey
    * configure the apt mirror (can be skipped)
+   * decline the package usage survey
    * select software to install: uncheck "Debian desktop environment", keep only "standard system utilities"
    * install GRUB 
    * finish the Debian installation with minimal system packages installed
@@ -98,3 +98,5 @@ the goal of this document is to provide a reproducible runbook that another poep
 
    finally, check the new size with `lvs` and `df -h`. Some free space must remain in the volume group before extending a     
    logical volume, which is why keeping unused space in the VG during installation is useful.
+
+   ![Screenshot](./screenshots/extendlv.png)
