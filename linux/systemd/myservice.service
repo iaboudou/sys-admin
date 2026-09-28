@@ -1,7 +1,8 @@
 [Unit]
-Description=myservice
+Description=myservice - checks and recreates a file if missing
 
 [Service]
+Type=simple
 ExecStart=/home/script.sh
 Restart=always
 
