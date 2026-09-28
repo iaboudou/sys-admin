@@ -16,130 +16,119 @@ the goal of this document is to provide a reproducible runbook that other poeple
 
    this is step by step, the installation process used as the base for this linux project.    
    * install VirtualBox
-   * download the [Debian ISO](https://www.debian.org/download)
-   * create a new VM
-   * allocate a virtual disk of at least 20-25 GB 
-   * select the Debian ISO
-   * disable unattended installation
+   * download the [Debian ISO](https://www.debian.org/download) (netinst minimal image)
+   * create a new VM (Name: `vm`, Type: Linux, Version: Debian 64-bit)
+   * attach the Debian ISO and check "Skip Unattended Installation"
+   * allocate at least 1-2 GB RAM and a virtual disk of at least 20-25 GB
    * start the VM and boot from the Debian ISO
-   * select the installation language
-   * configure the location
-   * configure the locale
-   * configure the keyboard
-   * if the automatic DHCP configuration fails skip it for later
-   * configure the hostname
+   * select the installation language (English)
+   * configure the location (United States)
+   * configure the locale (`en_US.UTF-8`)
+   * configure the keyboard keymap (French)
+   * configure the network:
+      - enter hostname: `hostilyass`
+      - leave domain name empty
    * set the root password
-   * create the normal user account
-   * configure the timezone
+   * create the normal user account:
+      - full name: `ilyass`
+      - username: `ilyass`
+      - set the user password
+   * configure the clock (timezone: `Eastern`)
    * select manual partitioning
-   * create a new empty partition table
-   * configure the disk using LVM
-   * create a physical volume (PV) on the partition dedicated to LVM
-   * create a volume group (VG) named `vg`
-   * create logical volumes(LV) for `/`, `/home`, `/var` and swap
+   * select the virtual disk (`/dev/sda`)
+   * configure the Logical Volume Manager (LVM):
+      - create a volume group (VG) named `vg` on `/dev/sda`
+      - create logical volumes (LV) for `/`, `/home`, `/var` and swap
    * assign the appropriate filesystem (ext4) and mount point to each logical volume:
       - root: 5 GB, ext4, mounted on `/`    
       - home: 2 GB, ext4, mounted on `/home`      
       - var: 2 GB, ext4, mounted on `/var`  
       - swap: 1 GB, used as swap   
       - leave the remaining space unallocated in the volume group (VG)  
-   * write the partition changes to disk  
-   * configure the apt mirror (can be skipped)
-   * decline the package usage survey
+   * write the partition changes to disk (select `<Yes>`)
+   * configure the package manager (APT):
+      - decline scanning extra installation media
+      - select archive mirror country (Morocco)
+      - select archive mirror (`deb.debian.org`)
+      - leave HTTP proxy blank
+   * decline the package usage survey (popularity-contest)
    * select software to install: uncheck "Debian desktop environment", keep only "standard system utilities"
-   * install GRUB 
-   * finish the Debian installation with minimal system packages installed
+   * install the GRUB boot loader on the primary drive (`/dev/sda`)
+   * finish the installation and reboot the VM
+   * verify that the system boots directly to a minimal text console login (`tty1`, no desktop environment)
+   * verify LVM configuration with `lsblk`, `lvs`, `vgs`, and `df -h` (to confirm free extents remain in the VG)
    * take a VM snapshot immediately after the clean install
-   * verify LVM configuration with `lsblk`, `df -h`, and `vgs` (to confirm free extents remain in the VG)
 
-   ![Screenshot](./screenshots/snapshot1.png)
+   ![Screenshot](./screenshots/snapshot.png)
    ![Screenshot](./screenshots/installation.png)
-
 
 ## Volume size justification
 
    * `/` root filesystem
 
-      This volume stores the operating system and the main system files. if it runs out of space, the system may   
-      have problems installing packages or performing normal operations.    
+      This volume stores the operating system and the main system files. if it runs out of space, the system may have problems installing packages or performing normal operations.    
 
    * `/home`
 
-      this volume stores users personal files and configuration files. keeping it separate from `/` prevents user    
-      files from using all the space available on the root filesystem. if `/home` becomes full, users may no longer   
-      be able to create or save files.    
+      this volume stores users personal files and configuration files. keeping it separate from `/` prevents user files from using all the space available on the root filesystem. if `/home` becomes full, users may no longer be able to create or save files.    
 
    * `/var`
 
-      this volume contains data that changes while the system is running, such as logs, caches and other service data.  
+      this volume contains data that changes while the system is running, such as logs, caches and other service data. 
       if it becomes full, some services may stop working correctly and new log entries may not be written.     
 
    * `swap`
 
-      Swap provides additional disk space that can be used when the available RAM is low. it is configured as a separate         
-      LVM logical volume so its size can be managed independently from the other filesystems. if swap becomes full while      
-      RAM is also exhausted, the system may start terminating processes because there is no more available memory.
+      Swap provides additional disk space that can be used when the available RAM is low. it is configured as a separate LVM logical volume so its size can be managed independently from the other filesystems. if swap becomes full while RAM is also exhausted, the system may start terminating processes because there is no more available memory.
 
-   Not all the space in the volume group (VG) is allocated during installation. the remaining free space can be checked       
-   with the `vgs` command. Keeping some free extents in the VG makes it possible to extend a logical volume later without     
-   repartitioning the disk.      
+   Not all the space in the volume group (VG) is allocated during installation. the remaining free space can be checked with the `vgs` command. Keeping some free extents in the VG makes it possible to extend a logical volume later without repartitioning the disk.      
 
-   growing a logical volume and its filesystem can be done while the filesystem is mounted, without unmounting it or losing      
-   existing data. Shrinking is more complicated: for ext4, the filesystem must first be unmounted. Because of this, it is        
-   useful to leave some free space in the volume group and increase the logical volumes later when more space is actually     
-   needed, instead of allocating too much space during installation.     
+   growing a logical volume and its filesystem can be done while the filesystem is mounted, without unmounting it or losing existing data. Shrinking is more complicated: for ext4, the filesystem must first be unmounted. Because of this, it is useful to leave some free space in the volume group and increase the logical volumes later when more space is actually needed, instead of allocating too much space during installation.
 
-   let's now demonstrate how to extend a logical volume (LV) while the system is running, without unmounting the filesystem      
-   or losing existing data. first, check the current storage state with the `lvs`, `df -h` and `vgs` commands. Then, extend      
-   the root logical volume by 500 MB with: `lvextend -L +500M /dev/vg/root`.     
+   let's now demonstrate how to extend a logical volume (LV) while the system is running, without unmounting the filesystem or losing existing data. first, check the current storage state with the `lvs`, `df -h` and `vgs` commands. Then, extend the root logical volume by 500 MB with: `lvextend -L +500M /dev/vg/root`.     
 
-   at this point, the logical volume is larger, but the filesystem itself has not yet been resized. Let's now grow the ext4 filesystem with:       
-   `resize2fs /dev/vg/root`      
+   at this point, the logical volume is larger, but the filesystem itself has not yet been resized. Let's now grow the ext4 filesystem with: `resize2fs /dev/vg/root`      
 
-   finally, check the new size with `lvs` and `df -h`. Some free space must remain in the volume group before extending a     
-   logical volume, which is why keeping unused space in the VG during installation is useful.
+   finally, check the new size with `lvs` and `df -h`. Some free space must remain in the volume group before extending a logical volume, which is why keeping unused space in the VG during installation is useful.
 
    ![Screenshot](./screenshots/extendlv.png)
 
 
-## Configure a static IPv4 address and DNS.
+## Network configuration: static IPv4 address and DNS
 
-   debian VM uses the enp0s3 interface, let's configure it with a static IPv4 address and DNS servers by editing /etc/network/interfaces :                 
+   the VM uses the `enp0s3` interface with the VirtualBox NAT network. edit `/etc/network/interfaces` directly (no graphical tool) and replace the DHCP block of `enp0s3` with:
+
    ```
-      auto enp0s3
-      iface enp0s3 inet static
-         address 10.0.2.5
-         netmask 255.255.255.0
-         gateway 10.0.2.2
-         dns-nameservers 1.1.1.1
-   ```      
+   auto enp0s3
+   iface enp0s3 inet static
+       address 10.0.2.5
+       netmask 255.255.255.0
+       gateway 10.0.2.2
+   ```
 
-   note that the IP address, netmask, and gateway must match the VirtualBox network configuration (Bridged Adapter mode), and that     
-   this is done by editing the configuration file directly, without any graphical tool.      
+   the IP address, netmask, and gateway must match the VirtualBox network (here NAT mode).
 
-   at this point apply the configuration with `systemctl restart networking`, or bring the interface down and up with      
-   `ip link set enp0s3 down` and `ip link set enp0s3 up`. then verify the configured IP address and routing table with  
-   `ip addr show enp0s3` and `ip route` commands. the output should confirm that enp0s3 has the configured static IP address  
-   and that the default route uses the configured gateway.        
+   apply the configuration with `systemctl restart networking`, or bring the interface down and up with `ip link set enp0s3 down` and `ip link set enp0s3 up`. then verify with `ip addr show enp0s3` and `ip route`: enp0s3 must have the static address and the default route must use the configured gateway.
 
-## Verify DNS resolution
+   ## DNS configuration
 
-   the `dns-nameservers` line in /etc/network/interfaces is applied to /etc/resolv.conf automatically when the interface comes up. check           
-   that it was written correctly with `cat /etc/resolv.conf`, it should contain a line like `nameserver 1.1.1.1`. if this line is missing,      
-   it can be added directly to /etc/resolv.conf instead, though it may be overwritten the next time the interface is restarted.     
+   set the DNS server directly in `/etc/resolv.conf`:
 
-   note that without a valid DNS server, domain names will not resolve even if the network itself is working correctly.    
+   ```
+   echo "nameserver 1.1.1.1" > /etc/resolv.conf
+   cat /etc/resolv.conf
+   ```
 
-   then test name resolution with `ping google.com`. the output should confirm that the domain name resolves to an IP address and that         
-   packets are being exchanged.      
+   the output must contain `nameserver 1.1.1.1`. without a valid DNS server, domain names do not resolve even if the network works.
 
-## Verify internet connectivity  
+   ## Verify DNS and internet connectivity
 
-   with the static IP, gateway, and DNS all configured, we can confirm that the machine has full access to the internet.            
+   ```
+   ping -c 3 deb.debian.org
+   ping -c 4 8.8.8.8
+   ```
 
-   at this point test raw IP connectivity with `ping -c 4 8.8.8.8`, this confirms connectivity independently of DNS. the output  
-   should show replies with 0% packet loss, confirming that the interface, routing, and internet access are all working correctly. 
-
+   the first command confirms that the name resolves and packets are exchanged. the second confirms raw IP connectivity independently of DNS, with 0% packet loss.
 
    ![Screenshot](./screenshots/network2.png)
 
@@ -148,9 +137,9 @@ the goal of this document is to provide a reproducible runbook that other poeple
 
    we are going to create a service named `myservice`. it runs continuously: it checks whether a specific file exists, recreates it if missing, logs what it did, then sleeps and repeats.
 
-   log in as root (or use `su -`), then create the script on the VM with `nano /home/script.sh` and paste this content:
+   log in as root (or use `su -`), then create the script on the VM with `nano /home/myservice.sh` and paste this content:
 
-   `/home/script.sh`:
+   `/home/myservice.sh`:
    ```bash
       #!/bin/bash
 
@@ -166,7 +155,7 @@ the goal of this document is to provide a reproducible runbook that other poeple
           sleep 2
       done
    ```
-   save and exit nano (`Ctrl+O`, `Enter`, `Ctrl+X`), then make the script executable: `chmod +x /home/script.sh`     
+   save and exit nano (`Ctrl+O`, `Enter`, `Ctrl+X`), then make the script executable: `chmod +x /home/myservice.sh`     
 
 ## The systemd unit
 
@@ -181,7 +170,7 @@ the goal of this document is to provide a reproducible runbook that other poeple
 
       [Service]
       Type=simple
-      ExecStart=/home/script.sh
+      ExecStart=/home/myservice.sh
       Restart=always
 
       [Install]
@@ -218,7 +207,8 @@ the goal of this document is to provide a reproducible runbook that other poeple
    confirm it survives a crash: kill the process manually and verify systemd restarts it automatically.     
    
    ```
-      pkill -f script.sh
+      systemctl show -p MainPID myservice.service
+      kill <pid>
       systemctl status myservice.service
    ```
 
@@ -228,3 +218,42 @@ the goal of this document is to provide a reproducible runbook that other poeple
 
    ![Screenshot](./screenshots/myservice.png)
    ![Screenshot](./screenshots/systemdunit-journal.png)
+
+
+
+## Boot Report
+
+   1. Slowest units at boot
+
+```
+systemd-analyze blame
+```
+
+   ![Screenshot](./screenshots/boot-blame.png)
+
+   According to the output of the command `systemd-analyze blame`, the slowest units during boot for example are:    
+      * `dev-mapper-vg\x2droot.device` (385 ms)    
+      * `apt-daily-upgrade.service` (315 ms)       
+      * `modprobe@drm.service` (207 ms)         
+      * `myservice.service` (197 ms)      
+      * `apparmor.service` (193 ms)    
+
+   the timings change slightly from one boot to another, these values come from the boot shown in the screenshot above.
+
+   2. Unit analysis (`dev-mapper-vg\x2droot.device`)
+
+      - Role :
+         it is a device unit that represents the logical volume `/dev/mapper/vg-root`, which holds the root filesystem. systemd considers it active once the device has been detected and is available, and the root filesystem cannot be mounted before that.
+      - Why it takes time (385 ms) ?:
+         it mostly waits rather than computes: the virtual disk has to be detected, LVM has to scan and activate the volume group `vg`, and udev has to process the event for the new device. It is one of the first things to happen at boot, so it also accumulates the time spent waiting for the (virtual) hardware.
+
+   3. Difference between `enabled` and `active`
+
+      - **enabled:** the service is configured to start automatically at boot (a symbolic link exists in `/etc/systemd/system/multi-user.target.wants/`).
+      - **active:** the service is started and running right now.
+      - **Example:** a service can be `enabled` but inactive (stopped manually with `systemctl stop`), or `disabled` but active (started manually with `systemctl start` without enabling it).
+
+```
+systemctl is-enabled myservice.service
+systemctl is-active myservice.service
+```

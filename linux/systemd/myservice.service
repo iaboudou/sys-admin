@@ -3,7 +3,7 @@ Description=myservice - checks and recreates a file if missing
 
 [Service]
 Type=simple
-ExecStart=/home/script.sh
+ExecStart=/home/myservice.sh
 Restart=always
 
 [Install]

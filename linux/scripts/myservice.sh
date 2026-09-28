@@ -1,6 +1,6 @@
 #!/bin/bash
 
-FILE="/root/myservice_check.txt"
+FILE="/home/myservice_check.txt"
 
 while true; do
     if [ ! -f "$FILE" ]; then
