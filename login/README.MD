@@ -94,7 +94,7 @@ Created with:
     visudo -f /etc/sudoers.d/devrole
     visudo -f /etc/sudoers.d/deployrole
 
-Least-privilege rules:
+ for Least-privilege rules:
 
 - Privileges are granted to groups, never directly to users.
 - Only admin1 has full privileges, via `%adminrole ALL=(ALL:ALL) ALL`.
@@ -116,3 +116,22 @@ Only admin1 has full privileges. Any other role showing them is a policy failure
 
 
 ### 5. Password Policy 
+
+- To check the aging policies for a specific user, run: `chage -l username`
+- you can set Limits of how many days a password remains valid before a change is required (exemple: `sudo chage -M 90 username`)
+
+#### 5.1. Password expiration (chage)
+
+password aging is applied on a per-user basis with `chage`, which changes the relevant fields in `/etc/shadow`, this is the command used:
+
+    sudo chage -m 7 -M 90 -W 14 -I 30 <username>
+
+- `-m (7)`  : minimum days before the user may change the password
+- `-M (90)` : maximum days a password stays valid
+- `-W (14)` : days of warning shown before the password expires
+- `-I (30)` : days after expiration before the account is disabled
+
+the `/etc/shadow` (via `chage`) file we be changed but no manual edit should performed. you can verify with `sudo chage -l <username>`
+
+![sudoers screen](screenshots/chage.png)
+
