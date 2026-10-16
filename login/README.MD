@@ -43,7 +43,7 @@ Check `/etc/apt/sources.list`:
 Then, as root:
 
     apt update
-    apt install openssh-server acl passwd libpam-modules
+    apt install openssh-server acl passwd libpam-modules sudo
 
 Here's what each one is for:
 
@@ -115,10 +115,7 @@ Only admin1 has full privileges. Any other role showing them is a policy failure
 ![sudoers screen](screenshots/sudoers.png)
 
 
-### 5. Password Policy 
-
-- To check the aging policies for a specific user, run: `chage -l username`
-- you can set Limits of how many days a password remains valid before a change is required (exemple: `sudo chage -M 90 username`)
+### 5. Password Policy
 
 #### 5.1. Password expiration (chage)
 
@@ -134,4 +131,72 @@ password aging is applied on a per-user basis with `chage`, which changes the re
 the `/etc/shadow` (via `chage`) file we be changed but no manual edit should performed. you can verify with `sudo chage -l <username>`
 
 ![sudoers screen](screenshots/chage.png)
+
+
+#### 5.2. Account Lockout (PAM)  
+
+
+After 3 failed logins, the account is locked for 10 minutes (`pam_faillock`).
+
+**Files changed**
+
+- `/etc/security/faillock.conf`: the lockout values
+- `/etc/pam.d/common-auth`: counts failed logins
+- `/etc/pam.d/common-account`: applies the lock
+
+**a. add to `/etc/security/faillock.conf`**
+
+    deny = 3
+    fail_interval = 900
+    unlock_time = 600
+
+- `deny = 3`: lock after 3 failed attempts
+- `fail_interval = 900`: the failures must happen within 15 minutes
+- `unlock_time = 600`: unlock automatically after 10 minutes
+
+**b. add to `/etc/pam.d/common-auth`**
+
+    auth    required                    pam_faillock.so preauth
+    auth    [success=1 default=ignore]  pam_unix.so nullok
+    auth    [default=die]               pam_faillock.so authfail
+    auth    sufficient                  pam_faillock.so authsucc
+    auth    requisite                   pam_deny.so
+    auth    required                    pam_permit.so
+
+- `preauth` (before the password check): refuses the login if the account is already locked
+- `authfail`: adds 1 to the failure counter after a wrong password
+- `authsucc`: resets the counter after a correct password
+
+![common-auth](screenshots/PAM-common-auth.png)
+
+**c. add to `/etc/pam.d/common-account`**
+
+    account required                    pam_faillock.so
+
+![common-account](screenshots/PAM-common-account.png)
+
+**Test**
+
+    su - dev1                           # wrong password 3 times
+    sudo faillock --user dev1           # shows the failures
+    sudo faillock --user dev1 --reset   # unlock
+
+
+Keep a root shell open while editing `/etc/pam.d/*`, in case of a mistake.
+
+
+
+### 6. Shared Directories  
+
+#### 6.1 Project Directory
+
+- create /home/user/srv/project/
+- create 2 other groups :
+    * `projectrolerwx` with (admin1, dev1)
+    * `projectroler--` with (deploy1)
+- change the group of the /srv/project with `chown root:projectrolerwx /srv/project/`, so only the root can change the permissions.
+- setgid the new files will inherite the group from the shared directory group not the user group `chmod 2770 /srv/project/`
+- garantate that the new files created will be rwx from users in projectrolerwx with : `setfacl -d -m g:projectrolerwx:rwx /srv/project`
+- garantate new future files created will be r-- from users in projectroler-- with : `setfacl -d -m g:projectroler--:r-x /srv/project/`
+-  give the access to the projectrole-- to read the files in /srv/project/ `setfacl -m  g:projectroler--:r-x /srv/project`
 
