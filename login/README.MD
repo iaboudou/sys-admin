@@ -190,13 +190,60 @@ Keep a root shell open while editing `/etc/pam.d/*`, in case of a mistake.
 
 #### 6.1 Project Directory
 
-- create /home/user/srv/project/
-- create 2 other groups :
-    * `projectrolerwx` with (admin1, dev1)
-    * `projectroler--` with (deploy1)
-- change the group of the /srv/project with `chown root:projectrolerwx /srv/project/`, so only the root can change the permissions.
-- setgid the new files will inherite the group from the shared directory group not the user group `chmod 2770 /srv/project/`
-- garantate that the new files created will be rwx from users in projectrolerwx with : `setfacl -d -m g:projectrolerwx:rwx /srv/project`
-- garantate new future files created will be r-- from users in projectroler-- with : `setfacl -d -m g:projectroler--:r-x /srv/project/`
--  give the access to the projectrole-- to read the files in /srv/project/ `setfacl -m  g:projectroler--:r-x /srv/project`
+`/srv/project` is shared by admin and developer (read/write). deploy can only read.
 
+**Groups**
+
+- `projectrolerwx`: admin1, dev1 (read/write)
+- `projectroler-x`: deploy1 (read only)
+
+**Setup**
+
+    mkdir /srv/project
+    chown root:projectrolerwx /srv/project
+    chmod 2770 /srv/project
+    setfacl -m    g:projectroler-x:r-x  /srv/project
+    setfacl -d -m g:projectrolerwx:rwx  /srv/project
+    setfacl -d -m g:projectroler-x:r-x  /srv/project
+
+**Why**
+
+- `chown`: root owns the directory, so only root can change its permissions.
+- `chmod 2770`: setgid makes new files inherit the group `projectrolerwx`; others get no access.
+- `setfacl -m`: lets deploy1 enter and read the directory.
+- `setfacl -d` (default ACL): every new file is group-writable for `projectrolerwx` and read-only for `projectroler-x`, without any `chmod`.
+
+Default ACLs only apply to files created after they are set.
+
+**Test**
+
+Switch to each user with `su - <user>`, run the command, then `exit`.
+
+**dev1** (must work)
+
+    su - dev1
+    echo "hello" > /srv/project/b.txt     # create a file
+    exit
+
+**admin1** (must work)
+
+    su - admin1
+    echo "ok" >> /srv/project/b.txt       # edit dev1's file
+    cat /srv/project/b.txt                # shows: hello / ok
+    exit
+
+**deploy1** (read yes, write no)
+
+    su - deploy1
+    cat /srv/project/b.txt                # works
+    echo "x" >> /srv/project/b.txt        # Permission denied
+    touch /srv/project/c.txt              # Permission denied
+    exit
+
+**usertest** (no access at all)
+
+    su - usertest
+    ls /srv/project                       # Permission denied
+    exit
+
+![de](screenshots/shared-directory.png)
