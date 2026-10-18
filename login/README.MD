@@ -15,7 +15,6 @@
         7. SSH Hardening    
         8. Verification Script  
         9. Repository Structure 
-        10. Security Principles & Conclusion  
 
 ### 1. Overview
 
@@ -29,6 +28,7 @@ The policy covers:
 - A shared project directory protected with POSIX ACLs and special bits (`setgid` and sticky).
 - Key-based SSH authentication with password login disabled.
 - An automated verification script (`verify.sh`) that proves each restriction actually holds.
+
 All roles interact with the systemd service `myservice.service` which was created in the `linux` project. This project verifies every claim in this document using `verify.sh` rather than assuming it is true.
 
 
@@ -63,9 +63,9 @@ assigned once per role instead of per user.
 
 | Role      | Group       | User     |
 |-----------|-------------|----------|
-| admin     | adminrole   | admin1   |
-| developer | devrole     | dev1     |
-| deploy    | deployrole  | deploy1  |
+| admin     | admin       | admin1   |
+| developer | developer   | dev1     |
+| deploy    | deploy      | deploy1  |
 
 * `adduser user` adds a new user
 * `addgroup role` adds a new role group
@@ -82,26 +82,25 @@ for the Permissions every user must be able to have a role:
 
 you do not edit `/etc/sudoers` , but rather put privileges in `/etc/sudoers.d/` . All files are checked for syntax with `visudo`.
 
-| File                        | Content                                                       |
-|-----------------------------|---------------------------------------------------------------|
-| `/etc/sudoers.d/adminrole`  | `%adminrole ALL=(ALL:ALL) ALL`                                |
-| `/etc/sudoers.d/devrole`    | `%devrole ALL=(root) NOPASSWD: /bin/systemctl start myservice`  |
-| `/etc/sudoers.d/deployrole` | `%deployrole ALL=(root) NOPASSWD: /bin/systemctl start myservice` |
+| File                        | Content                                                                                                                          |
+|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------|
+| `/etc/sudoers.d/admin`      | `%admin ALL=(ALL:ALL) ALL`                                                                                                                             |
+| `/etc/sudoers.d/developer`  | `%developer ALL=(root) NOPASSWD: /usr/bin/systemctl restart myservice, /usr/bin/systemctl restart myservice.service` |
+| `/etc/sudoers.d/deploy`     | `%deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart myservice, /usr/bin/systemctl restart myservice.service`   |
 
 Created with:
 
-    visudo -f /etc/sudoers.d/adminrole
-    visudo -f /etc/sudoers.d/devrole
-    visudo -f /etc/sudoers.d/deployrole
+    visudo -f /etc/sudoers.d/admin
+    visudo -f /etc/sudoers.d/developer
+    visudo -f /etc/sudoers.d/deploy
 
  for Least-privilege rules:
 
 - Privileges are granted to groups, never directly to users.
-- Only admin1 has full privileges, via `%adminrole ALL=(ALL:ALL) ALL`.
-- Neither developer nor deploy is a member of the `sudo` group, which on
-  Debian grants `ALL=(ALL:ALL) ALL` and would override any scoped rule.
+- Only admin1 has full privileges, via `%admin ALL=(ALL:ALL) ALL`.
+- Neither developer nor deploy is a member of the `sudo` group, which on Debian grants `ALL=(ALL:ALL) ALL` and would override any scoped rule.
 - Command-scoped rules only: developer and deploy are limited to
-  `/bin/systemctl start myservice`.
+  `/usr/bin/systemctl restart myservice` (and the `myservice.service` form, since sudo compares arguments exactly).
 
 verify with :
 
@@ -119,7 +118,7 @@ Only admin1 has full privileges. Any other role showing them is a policy failure
 
 #### 5.1. Password expiration (chage)
 
-password aging is applied on a per-user basis with `chage`, which changes the relevant fields in `/etc/shadow`, this is the command used:
+password aging is applied on a per-user basis with `chage`, which changes the relevant fields in `/etc/shadow`, this is the command used (for `admin1`, `dev1` and `deploy1`):
 
     sudo chage -m 7 -M 90 -W 14 -I 30 <username>
 
@@ -177,7 +176,14 @@ After 3 failed logins, the account is locked for 10 minutes (`pam_faillock`).
 
 **Test**
 
+As root, `su` never asks for a password, so no failure is counted. Run the attempts from a non-root user:
+
+    su - usertest
     su - dev1                           # wrong password 3 times
+    exit
+
+Then as root:
+
     sudo faillock --user dev1           # shows the failures
     sudo faillock --user dev1 --reset   # unlock
 
@@ -197,6 +203,15 @@ Keep a root shell open while editing `/etc/pam.d/*`, in case of a mistake.
 - `projectrolerwx`: admin1, dev1 (read/write)
 - `projectroler-x`: deploy1 (read only)
 
+Create them and the test user:
+
+    addgroup projectrolerwx
+    addgroup projectroler-x
+    adduser admin1 projectrolerwx
+    adduser dev1 projectrolerwx
+    adduser deploy1 projectroler-x
+    adduser usertest
+
 **Setup**
 
     mkdir /srv/project
@@ -214,6 +229,14 @@ Keep a root shell open while editing `/etc/pam.d/*`, in case of a mistake.
 - `setfacl -d` (default ACL): every new file is group-writable for `projectrolerwx` and read-only for `projectroler-x`, without any `chmod`.
 
 Default ACLs only apply to files created after they are set.
+
+**Check the ACL**
+
+    getfacl /srv/project
+    # default:group:projectrolerwx:rwx
+    # default:group:projectroler-x:r-x
+
+`default:` means the entry is inherited by every new file created in the directory. So a file created by dev1 is automatically `rw` for the group `projectrolerwx` (admin1 can edit it) and read-only for `projectroler-x`, without anyone running `chmod`.
 
 **Test**
 
@@ -247,3 +270,161 @@ Switch to each user with `su - <user>`, run the command, then `exit`.
     exit
 
 ![de](screenshots/shared-directory.png)
+
+
+
+#### 6.2 Scratch Directory 
+
+`/srv/scratch` is a shared area where everyone can write, but users can only delete their own files.
+
+**Setup**
+
+    mkdir -p /srv/scratch
+    chmod 1777 /srv/scratch
+
+**Why**
+
+- `777`: any user can create and edit files here.
+- `1` (sticky bit): a user can only delete or rename files they own. Root can delete anything.
+
+**Check**
+
+    ls -ld /srv/scratch      # drwxrwxrwt (the final "t" is the sticky bit)
+
+**Test**
+
+    su - dev1 -c 'touch /srv/scratch/a.txt'
+    su - deploy1 -c 'rm /srv/scratch/a.txt'    # rm: cannot remove ... Operation not permitted
+
+![sticky bit](screenshots/sticky-bit.png)
+
+
+#### 6.3 Mechanism Table
+
+Which permission mechanism is used where, and why.
+
+| Goal | Mechanism | Where | Why |
+|------|-----------|-------|-----|
+| New files inherit the directory's group | setgid (`chmod 2770`) | `/srv/project` | Without it, new files belong to the creator's primary group. setgid forces `projectrolerwx`. |
+| Group members can edit each other's files | Default ACL (`setfacl -d -m g:projectrolerwx:rwx`) | `/srv/project` | setgid fixes the group but not the write bit: with umask 022, new files are read-only for the group. The default ACL makes them group-writable without any `chmod`. |
+| deploy can read new files but not write | Default ACL (`setfacl -d -m g:projectroler-x:r-x`) | `/srv/project` | deploy1 is not in `projectrolerwx`, so it needs its own entry. It gets read access without joining the writer group. |
+| deploy can enter and list the directory | Access ACL (`setfacl -m g:projectroler-x:r-x`) | `/srv/project` | Without `x` on the directory, deploy1 cannot enter it, and the default ACLs on the files inside would be unreachable. |
+| Others have no access | Mode `770` and `other::---` | `/srv/project` | Anyone outside the two groups is denied. |
+| Only root can change the directory's permissions | Ownership (`chown root:projectrolerwx`) | `/srv/project` | Only the owner (root) can run `chmod` or `setfacl`. Group members can use the directory but not change its policy. |
+| Users cannot delete other users' files | Sticky bit (`chmod 1777`) | `/srv/scratch` | The directory must stay world-writable for uploads, but the sticky bit allows only the file owner (or root) to delete a file. |
+| Everyone can upload | `rwx` for others (`chmod 1777`) | `/srv/scratch` | The scratch area is intentionally open to all roles. The project directory is protected by its own ACLs. |
+
+
+### 7. SSH Hardening
+
+Every user logs in with an SSH key. Password login is disabled.
+
+**1. Generate one key pair per user (on the client machine)**
+
+    ssh-keygen -t ed25519 -f ~/.ssh/vm_il_dev_admin1
+    ssh-keygen -t ed25519 -f ~/.ssh/vm_il_dev_dev1
+    ssh-keygen -t ed25519 -f ~/.ssh/vm_il_dev_deploy1
+
+**2. Install each public key on the server (as root, for each user)**
+
+Example for dev1:
+
+    mkdir -p /home/dev1/.ssh
+    nano /home/dev1/.ssh/authorized_keys     # paste the content of vm_il_dev_dev1.pub
+    chmod 700 /home/dev1/.ssh
+    chmod 600 /home/dev1/.ssh/authorized_keys
+    chown -R dev1:dev1 /home/dev1/.ssh
+
+Same for `admin1` and `deploy1` with their own public key.
+The VM uses NAT, so a VirtualBox port forward is set: host `127.0.0.1:2224` → guest `22`.
+
+**3. Test key login before disabling passwords**
+
+    ssh -p 2224 -i ~/.ssh/vm_il_dev_dev1 dev1@localhost
+
+It must open a shell without asking for the account password.
+
+**4. Disable password authentication in `/etc/ssh/sshd_config` on the server machine**
+
+    PubkeyAuthentication yes
+    PasswordAuthentication no
+    KbdInteractiveAuthentication no
+    PermitRootLogin prohibit-password
+
+- `PubkeyAuthentication yes`: allow key login
+- `PasswordAuthentication no`: refuse password login
+- `KbdInteractiveAuthentication no`: closes the other password-style path
+- `PermitRootLogin prohibit-password`: root can only log in with a key
+
+**5. Check and restart**
+
+    sshd -t
+    systemctl restart ssh
+
+**6. Proof**
+
+Password login is refused:
+
+    ssh -p 2224 -o PubkeyAuthentication=no -o PreferredAuthentications=password dev1@localhost
+    # dev1@localhost: Permission denied (publickey).
+
+Key login succeeds:
+
+    ssh -p 2224 -i ~/.ssh/vm_il_dev_dev1 dev1@localhost 
+    # opens the shell of dev1, no password
+
+Effective server configuration (as root on the VM):
+
+    sshd -T | grep -iE 'passwordauthentication|kbdinteractiveauthentication|pubkeyauthentication'
+    # pubkeyauthentication yes
+    # passwordauthentication no
+    # kbdinteractiveauthentication no
+
+
+### 8. Verification Script
+
+`verify.sh` tests the policy: for each restricted role, it tries the forbidden actions and checks that each one is denied.
+
+Run it as root:
+
+    sudo ./verify.sh
+    echo $?
+
+- One `PASS` or `FAIL` line per assertion.
+- Exit code `0` if everything passes, non-zero as soon as one assertion fails.
+
+| Role | Action tested | Expected |
+|------|---------------|----------|
+| developer | `sudo apt install tree` | denied |
+| developer | `sudo systemctl restart myservice` | allowed |
+| deploy | `sudo apt install tree` | denied |
+| deploy | create a file in `/srv/project` | denied |
+| usertest | read `/srv/project` | denied |
+| dev1 / admin1 | edit each other's file in `/srv/project` | allowed |
+| deploy1 | delete another user's file in `/srv/scratch` | denied |
+
+**Detection test (break a rule on purpose)**
+
+    echo '%developer ALL=(ALL) NOPASSWD: ALL' | sudo tee -a /etc/sudoers.d/developer
+    sudo ./verify.sh; echo $?       # FAIL lines, exit code != 0
+
+Then restore the original rule (remove the added line) and run the script again: all `PASS`, exit code `0`.
+
+
+### 9. Repository Structure
+
+    login/
+    ├── README.md        # access model, password policy, permissions rationale
+    ├── sudoers.d/       # copies of the /etc/sudoers.d/ policy files
+    │   ├── admin        # admin role: full privileges
+    │   ├── developer    # developer role: restart the service only
+    │   └── deploy       # deploy role: restart the service only
+    └── verify.sh        # verification script proving the policy holds
+
+**Files**
+
+- `README.md`: the access model, the password policy, and why each permission mechanism is used (sudo, ACL, setgid, sticky bit).
+- `sudoers.d/`: copies of the live files in `/etc/sudoers.d/`, so the policy is versioned and can be reviewed without reading the server. The repo files are named after the roles; on the server they are installed as `admin`, `developer` and `deploy`.
+- `verify.sh`: tries the forbidden actions of each role and prints one PASS or FAIL line per test. It exits with a non-zero code if any test fails.
+
+In the `add-vm` project, `verify.sh` is reused as the regression test to check that a rebuilt machine still meets this policy.
