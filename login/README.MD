@@ -383,34 +383,43 @@ Effective server configuration (as root on the VM):
 
 ### 8. Verification Script
 
-`verify.sh` tests the policy: for each restricted role, it tries the forbidden actions and checks that each one is denied.
-
-Run it as root:
+`verify.sh` tests the policy: for each restricted role, it tries the forbidden actions and checks that each one is denied. It runs on the server, as root (it uses `sudo -u <user>` and `sudo -l -U <user>`).
 
     sudo ./verify.sh
     echo $?
 
 - One `PASS` or `FAIL` line per assertion.
-- Exit code `0` if everything passes, non-zero as soon as one assertion fails.
+- Exit code `0` if every assertion passes, `1` if at least one fails.
 
 | Role | Action tested | Expected |
 |------|---------------|----------|
-| developer | `sudo apt install tree` | denied |
-| developer | `sudo systemctl restart myservice` | allowed |
-| deploy | `sudo apt install tree` | denied |
-| deploy | create a file in `/srv/project` | denied |
-| usertest | read `/srv/project` | denied |
-| dev1 / admin1 | edit each other's file in `/srv/project` | allowed |
-| deploy1 | delete another user's file in `/srv/scratch` | denied |
+| dev1 / deploy1 | full root access (`sudo -l -U`) | denied |
+| admin1 | full root access (`sudo -l -U`) | allowed |
+| dev1 / deploy1 | manage users (`adduser`, `useradd`, `usermod`, `passwd`) | denied |
+| dev1 / deploy1 | install packages (`sudo -n -l /usr/bin/apt`) | denied |
+| dev1 / admin1 | create a file in `/srv/project` | allowed |
+| deploy1 | create a file in `/srv/project` | denied |
+| admin1 | edit dev1's file in `/srv/project` (no `chmod`) | allowed |
+| deploy1 | read a file in `/srv/project` | allowed |
+| deploy1 | write to a file in `/srv/project` | denied |
+| ilyass (no group, no ACL) | read `/srv/project` | denied |
+| deploy1 | create a file in `/srv/scratch` | allowed |
+| dev1 | delete deploy1's file in `/srv/scratch` (sticky bit) | denied |
+| deploy1 | delete its own file in `/srv/scratch` | allowed |
+| dev1 / deploy1 | `sudo systemctl restart myservice` | allowed |
+| dev1 / deploy1 | `sudo systemctl restart ssh` | denied |
+| sshd | `sshd -T`: `passwordauthentication no` | password login disabled |
+
+The SSH connection tests (password refused, key accepted) are done by hand from the host, see section 7.
 
 **Detection test (break a rule on purpose)**
 
-    echo '%developer ALL=(ALL) NOPASSWD: ALL' | sudo tee -a /etc/sudoers.d/developer
-    sudo ./verify.sh; echo $?       # FAIL lines, exit code != 0
+    visudo -f /etc/sudoers.d/developer
+    # add: %developer ALL=(root) NOPASSWD: ALL
 
-Then restore the original rule (remove the added line) and run the script again: all `PASS`, exit code `0`.
+    sudo ./verify.sh; echo $?       # FAIL lines, exit code 1
 
-
+Then remove the added line with `visudo -f /etc/sudoers.d/developer` and run the script again: all `PASS`, exit code `0`.
 ### 9. Repository Structure
 
     login/
