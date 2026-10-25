@@ -1,0 +1,13 @@
+install vagrant for ubuntu : https://developer.hashicorp.com/vagrant/install#linux
+
+check vargant is installed vagrant --version
+
+select VM provider (VirtualBox), and check is installed VBoxManage --version
+
+create a new folder for vagrant project vagrantpr/
+
+navigate to the folder un run vagrant init (this will create new vagrantfile in the folder : vagrantfile is a configuration file that define the settings for your VM)
+
+Starting from a minimal base box :
+choose a box to use like generic/debian12:  https://portal.cloud.hashicorp.com/vagrant/discover/generic/debian12; a box is the pre-configured VM image  that you can use as a starting point for your VM
+add configuration of the box in vagrantfile: Vagrant.configure("2") do |config| config.vm.box = "generic/debian12" config.vm.box_version = "4.3.12" end
