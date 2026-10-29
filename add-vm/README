@@ -1,13 +1,90 @@
-install vagrant for ubuntu : https://developer.hashicorp.com/vagrant/install#linux
+- install vagrant for ubuntu : https://developer.hashicorp.com/vagrant/install#linux
 
-check vargant is installed vagrant --version
+- check vargant is installed vagrant --version
 
-select VM provider (VirtualBox), and check is installed VBoxManage --version
+- select VM provider (VirtualBox), and check is installed VBoxManage --version
 
-create a new folder for vagrant project vagrantpr/
+- create a new folder for vagrant project vagrantpr/
 
-navigate to the folder un run vagrant init (this will create new vagrantfile in the folder : vagrantfile is a configuration file that define the settings for your VM)
+- navigate to the folder un run vagrant init (this will create new vagrantfile in the folder : vagrantfile is a configuration file that define the settings for your VM)
 
-Starting from a minimal base box :
-choose a box to use like generic/debian12:  https://portal.cloud.hashicorp.com/vagrant/discover/generic/debian12; a box is the pre-configured VM image  that you can use as a starting point for your VM
-add configuration of the box in vagrantfile: Vagrant.configure("2") do |config| config.vm.box = "generic/debian12" config.vm.box_version = "4.3.12" end
+- Starting from a minimal base box :
+  choose a box to use like generic/debian12: https://portal.cloud.hashicorp.com/vagrant/discover/generic/debian12; a box is the pre-configured VM image that you can use as a starting point for your VM
+  add configuration of the box in vagrantfile: Vagrant.configure("2") do |config| config.vm.box = "generic/debian12" config.vm.box_version = "4.3.12" end
+
+### vagrantfile configuration:
+
+    - config.vm.box: Uses the generic/debian12
+    - config.vm.box_version: version of the box
+    - config.vm.hostname: setting the hostname to 'hostilyass'
+    - configure the ressources of the VM :
+        * vb.name: Sets the VirtualBox VM name to hostilyass
+        * vb.memory: Allocates 2048MB of RAM
+        * vb.cpus: Allocates 2 virtual CPUs
+        * config.vm.provision: Runs the provision/linux.sh shell script to configure the Linux system automatically
+
+### linux configuration:
+
+1. script initialization
+   - stop execution if any error detected: `set -euo pipefail`
+   - each step of the script print a message with `echo` to show what was done
+
+2. User and Password Configuration
+    - set the root password: `echo "root:123" | chpasswd`
+    - add user only if he doesn't exist (so the script can run many times without error): `id ilyass || useradd -m ilyass`
+    - give bash as shell to the user: `sudo chsh -s /bin/bash ilyass`
+    - set the user password: `echo ilyass:ilyass | chpasswd`
+
+3. Static IP Address Configuration
+    - write the network configuration in /etc/network/interfaces with `>` (it replace all the file, so no duplicated lines if the script run again):
+        ```
+            auto lo
+            iface lo inet loopback
+
+            auto eth0
+            iface eth0 inet static
+                address 10.0.2.15
+                netmask 255.255.255.0
+                gateway 10.0.2.2
+        ```
+    - the address is 10.0.2.15 because it's the address that vagrant use to connect with ssh to the VM (the VirtualBox NAT forward the port 2222 to this address)
+    - the new address is applied at the next boot, no need to restart the network
+
+4. DNS Configuration
+    - remove the old file: `rm -f /etc/resolv.conf`
+    - set the DNS server: `echo 'nameserver 1.1.1.1' >> /etc/resolv.conf`
+
+5. Service Script Creation
+    - write the script of the service in /home/myservice.sh : it checks every 2 seconds if the file /home/myservice_check.txt exists, recreate it if missing, and print what it did
+        ```
+            #!/bin/bash
+            FILE="/home/myservice_check.txt"
+            while true; do
+              if [ ! -f "$FILE" ]; then
+                touch "$FILE"
+                echo "$(date "+%Y-%m-%d %H:%M:%S") - file recreated"
+              else
+                echo "$(date "+%Y-%m-%d %H:%M:%S") - file exists"
+              fi
+              sleep 2
+            done
+        ```
+    - make the script executable: `sudo chmod +x /home/myservice.sh`
+
+6. Service Configuration and Startup
+    - write the systemd unit in /etc/systemd/system/myservice.service:
+        ```
+            [Unit]
+            Description=myservice
+
+            [Service]
+            Type=simple
+            ExecStart=/home/myservice.sh
+            Restart=always
+
+            [Install]
+            WantedBy=multi-user.target
+        ```
+    - reload systemd to read the new unit: `sudo systemctl daemon-reload`
+    - enable the service at boot: `sudo systemctl enable "myservice.service"`
+    - start the service now: `sudo systemctl start "myservice.service"`
