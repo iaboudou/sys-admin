@@ -1,20 +1,25 @@
 #!/bin/bash
 
 set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
 echo "linux.sh: setup error detecter"
 ###########################
+
 
 echo "root:123"| chpasswd
 echo "linux.sh: root password setted"
 ###########################
 
-id ilyass || useradd -m ilyass
+
+id ilyass 2>/dev/null || useradd -m ilyass
 echo "linux.sh: ilyass added as user with /home/ilyass"
 ###########################
+
 
 sudo chsh -s /bin/bash ilyass
 echo "linux.sh: bash gived to ilyass"
 ###########################
+
 
 echo ilyass:ilyass | chpasswd
 echo "linux.sh: ilyass password changed"
@@ -35,6 +40,7 @@ sudo rm -f /etc/resolv.conf
 echo 'nameserver 1.1.1.1' >>  /etc/resolv.conf
 echo "linux.sh: static ip address setted"
 ###########################
+
 
 sudo echo '#!/bin/bash
 FILE="/home/myservice_check.txt"

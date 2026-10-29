@@ -9,5 +9,11 @@ Vagrant.configure("2") do |config|
     vb.cpus   = 2
   end
 
+  if !File.exist?(File.expand_path("~/.ssh/vm_vagrant"))
+    system("ssh-keygen", "-t", "ed25519", "-N", "", "-f", File.expand_path("~/.ssh/vm_vagrant")) or abort "Erreur de génération de clé SSH"
+  end
+
   config.vm.provision "linux", type: "shell", path: "provision/linux.sh"
+  config.vm.provision "login", type: "shell", path: "provision/login.sh", env: { "PUBLIC_KEY" => File.read(File.expand_path("~/.ssh/vm_vagrant.pub")).strip }
+  
 end
