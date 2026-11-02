@@ -1,14 +1,14 @@
-
 #!/bin/bash
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 echo "login.sh: setup started"
 ###########################
 
-apt update
-apt install -y openssh-server acl passwd libpam-modules sudo
+apt-get update
+apt-get install -y openssh-server acl passwd libpam-modules sudo
 echo "login.sh: required packages for login are installed"
 ###########################
+
 
 id admin1 2>/dev/null || useradd -m admin1
 id dev1 2>/dev/null || useradd -m dev1
@@ -16,28 +16,32 @@ id deploy1 2>/dev/null || useradd -m deploy1
 echo "login.sh: 3 users are created (admin1, dev1, deploy1)"
 ###########################
 
+
 echo "admin1:admin1" | chpasswd
 echo "dev1:dev1" | chpasswd
 echo "deploy1:deploy1" | chpasswd
+echo "vagrant:123" | chpasswd
 echo "login.sh: users passwords set"
 ###########################
+
 
 chsh -s /bin/bash admin1
 chsh -s /bin/bash dev1
 chsh -s /bin/bash deploy1
-echo "linux.sh: bash gived to new users "
+echo "login.sh: bash given to new users"
 ###########################
 
 
-addgroup admin
-addgroup developer
-addgroup deploy
+getent group admin >/dev/null || addgroup admin
+getent group developer >/dev/null || addgroup developer
+getent group deploy >/dev/null || addgroup deploy
 echo "login.sh: 3 role groups are created (admin, developer, deploy)"
 ###########################
 
-adduser admin1 admin
-adduser dev1 developer
-adduser deploy1 deploy
+
+usermod -aG admin admin1
+usermod -aG developer dev1
+usermod -aG deploy deploy1
 echo "login.sh: users added to their roles"
 ###########################
 
@@ -73,66 +77,27 @@ fail_interval = 900
 unlock_time = 600" > /etc/security/faillock.conf
 ###########################
 
-echo "# 
-# /etc/pam.d/common-auth - authentication settings common to all services
-#
-# This file is included from other service-specific PAM config files,
-# and should contain a list of the authentication modules that define
-# the central authentication scheme for use on the system
-# (e.g., /etc/shadow, LDAP, Kerberos, etc.).  The default is to use the
-# traditional Unix authentication mechanisms.
-#
-# As of pam 1.0.1-6, this file is managed by pam-auth-update by default.
-# To take advantage of this, it is recommended that you configure any
-# local modules either before or after the default block, and use
-# pam-auth-update to manage selection of other modules.  See
-# pam-auth-update(8) for details.
-#
+echo "# /etc/pam.d/common-auth
+# Authentication settings for all services.
 
-# here are the per-package modules (the Primary block)
-auth    [success=1 default=ignore]  pam_unix.so nullok
-auth    [default=die]       pam_faillock.so authfail
-auth    sufficient      pam_faillock.so authsucc
-auth    required        pam_faillock.so preauth
-# here'\''s the fallback if no module succeeds
-auth    requisite           pam_deny.so
-# prime the stack with a positive return value if there isn'\''t one already;
-# this avoids us returning an error just because nothing sets a success code
-# since the modules above will each just jump around
-auth    required            pam_permit.so
-# and here are more per-package modules (the Additional block)
-# end of pam-auth-update config" > /etc/pam.d/common-auth
+auth    required                    pam_faillock.so preauth silent
+auth    [success=1 default=bad]      pam_unix.so nullok
+auth    [default=die]                pam_faillock.so authfail
+auth    sufficient                  pam_faillock.so authsucc
+auth    requisite                   pam_deny.so
+auth    required                    pam_permit.so" > /etc/pam.d/common-auth
 
 echo "login.sh: account lockout configured"
 ###########################
 
 
-echo '# 
-# /etc/pam.d/common-account - authorization settings common to all services
-#
-# This file is included from other service-specific PAM config files,
-# and should contain a list of the authorization modules that define
-# the central access policy for use on the system.  The default is to
-# only deny service to users whose accounts are expired in /etc/shadow.
-#
-# As of pam 1.0.1-6, this file is managed by pam-auth-update by default.
-# To take advantage of this, it is recommended that you configure any
-# local modules either before or after the default block, and use
-# pam-auth-update to manage selection of other modules.  See
-# pam-auth-update(8) for details.
-#
+echo "# /etc/pam.d/common-account
+# Account settings for all services.
 
-# here are the per-package modules (the "Primary" block)
-account required            pam_faillock.so
-account [success=1 new_authtok_reqd=done default=ignore]    pam_unix.so
-# here'\''s the fallback if no module succeeds
-account requisite           pam_deny.so
-# prime the stack with a positive return value if there isn'\''t one already;
-# this avoids us returning an error code
-# since the modules above will each just jump around
-account required            pam_permit.so
-# and here are more per-package modules (the "Additional" block)
-# end of pam-auth-update config' > /etc/pam.d/common-account
+account required                    pam_faillock.so
+account [success=1 new_authtok_reqd=done default=ignore] pam_unix.so
+account requisite                   pam_deny.so
+account required                    pam_permit.so" > /etc/pam.d/common-account
 
 echo "login.sh: PAM account lockout configured"
 ###########################
@@ -144,36 +109,35 @@ echo "login.sh: projectrolerwx and projectroler-x are created"
 ###########################
 
 
-adduser admin1 projectrolerwx
-adduser dev1 projectrolerwx
-echo "dev1 and admin1 are added to the group (projectrolerwx)"
+usermod -aG projectrolerwx admin1
+usermod -aG projectrolerwx dev1
+echo "login.sh: dev1 and admin1 are added to projectrolerwx"
 ###########################
 
 
-adduser deploy1 projectroler-x
-echo "deploy1 is added to group (projectroler-x)"
+usermod -aG projectroler-x deploy1
+echo "login.sh: deploy1 is added to projectroler-x"
 ###########################
 
 
 mkdir -p /srv/project
 chown root:projectrolerwx /srv/project
 chmod 2770 /srv/project
-echo "project directory created"
+echo "login.sh: project directory created"
 ###########################
 
 
 setfacl -m g:projectroler-x:r-x /srv/project
 setfacl -d -m g:projectrolerwx:rwx /srv/project
 setfacl -d -m g:projectroler-x:r-x /srv/project
-echo "set permission to the project directory"
+echo "login.sh: permissions set on the project directory"
 ###########################
 
 
 mkdir -p /srv/scratch
 chmod 1777 /srv/scratch
-echo "linux.sh: scratch directory configured"
+echo "login.sh: scratch directory configured"
 ###########################
-
 
 
 echo "# This is the sshd server system-wide configuration file.  See
@@ -181,10 +145,8 @@ echo "# This is the sshd server system-wide configuration file.  See
 
 # This sshd was compiled with PATH=/usr/local/bin:/usr/bin:/bin:/usr/games
 
-# The strategy used for options in the default sshd_config shipped with
-# OpenSSH is to specify options with their default value where
-# possible, but leave them commented.  Uncommented options override the
-# default value.
+# The strategy here is to specify options with their default value
+# where possible, but leave them commented.
 
 Include /etc/ssh/sshd_config.d/*.conf
 
@@ -193,9 +155,7 @@ Include /etc/ssh/sshd_config.d/*.conf
 #ListenAddress 0.0.0.0
 #ListenAddress ::
 
-#HostKey /etc/ssh/ssh_host_rsa_key
-#HostKey /etc/ssh/ssh_host_ecdsa_key
-#HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_ed25519_key
 
 # Ciphers and keying
 #RekeyLimit default none
@@ -215,7 +175,7 @@ PermitRootLogin prohibit-password
 PubkeyAuthentication yes
 
 # Expect .ssh/authorized_keys2 to be disregarded by default in future.
-#AuthorizedKeysFile	.ssh/authorized_keys .ssh/authorized_keys2
+#AuthorizedKeysFile .ssh/authorized_keys .ssh/authorized_keys2
 
 #AuthorizedPrincipalsFile none
 
@@ -224,18 +184,12 @@ PubkeyAuthentication yes
 
 # For this to work you will also need host keys in /etc/ssh/ssh_known_hosts
 #HostbasedAuthentication no
-# Change to yes if you don't trust ~/.ssh/known_hosts for
-# HostbasedAuthentication
 #IgnoreUserKnownHosts no
-# Don't read the user's ~/.rhosts and ~/.shosts files
 #IgnoreRhosts yes
 
-# To disable tunneled clear text passwords, change to no here!
 PasswordAuthentication no
 #PermitEmptyPasswords no
 
-# Change to yes to enable challenge-response passwords (beware issues with
-# some PAM modules and threads)
 KbdInteractiveAuthentication no
 
 # Kerberos options
@@ -250,14 +204,6 @@ KbdInteractiveAuthentication no
 #GSSAPIStrictAcceptorCheck yes
 #GSSAPIKeyExchange no
 
-# Set this to 'yes' to enable PAM authentication, account processing,
-# and session processing. If this is enabled, PAM authentication will
-# be allowed through the KbdInteractiveAuthentication and
-# PasswordAuthentication.  Depending on your PAM configuration,
-# PAM authentication via KbdInteractiveAuthentication may bypass
-# If you just want the PAM account and session checks to run without
-# PAM authentication, then enable this but set PasswordAuthentication
-# and KbdInteractiveAuthentication to 'no'.
 UsePAM yes
 
 #AllowAgentForwarding yes
@@ -284,19 +230,15 @@ PrintMotd no
 # no default banner path
 #Banner none
 
-# Allow client to pass locale environment variables
 AcceptEnv LANG LC_*
 
+Subsystem sftp /usr/lib/openssh/sftp-server
 
-# override default of no subsystems
-Subsystem	sftp	/usr/lib/openssh/sftp-server
-
-# Example of overriding settings on a per-user basis
 #Match User anoncvs
-#	X11Forwarding no
-#	AllowTcpForwarding no
-#	PermitTTY no
-#	ForceCommand cvs server" > /etc/ssh/sshd_config
+# X11Forwarding no
+# AllowTcpForwarding no
+# PermitTTY no
+# ForceCommand cvs server" > /etc/ssh/sshd_config
 echo "login.sh: /etc/ssh/sshd_config configured"
 ###########################
 
@@ -314,4 +256,13 @@ chmod 600 /home/admin1/.ssh/authorized_keys /home/dev1/.ssh/authorized_keys /hom
 chown -R admin1:admin1 /home/admin1/.ssh
 chown -R dev1:dev1 /home/dev1/.ssh
 chown -R deploy1:deploy1 /home/deploy1/.ssh
-echo "login.sh: users becomes owners of the ssh files"
+
+echo "login.sh: users are owners of their SSH files"
+###########################
+
+
+sshd -t
+systemctl enable ssh
+systemctl restart ssh
+echo "login.sh: SSH configured and restarted"
+###########################
