@@ -1,6 +1,8 @@
 ## Login 
 
 ### Table of Contents
+---
+
         1. Overview 
         2. Prerequisites
         3. Access Control Model 
@@ -16,9 +18,11 @@
         8. Verification Script  
         9. Repository Structure 
 
+
+
 ### 1. Overview
 
-This project creates an access control policy on a server that is shared by three roles: administrator, developer and deployer. This project aims to apply the principle of least privilege. This project ensures that each role can do the actions that its job needs and nothing more.
+This implements an access control policy for different users on a shared server. The users are an administrator, developer and deployer. The principle of least privilege has been implemented to ensure that each user only has the permissions required to perform their role.
 
 The policy covers:
 
@@ -33,17 +37,13 @@ All roles interact with the systemd service `myservice.service` which was create
 
 
 ### 2. Prerequisites
+---
 
-Before touching packages or sudoers, `apt update` needs to work.
-
-Check `/etc/apt/sources.list`:
-
-![apt screen](screenshots/apt.png)
-
-Then, as root:
-
-    apt update
-    apt install openssh-server acl passwd libpam-modules sudo
+as root:
+```bash
+apt update
+apt install openssh-server acl passwd libpam-modules sudo
+```
 
 Here's what each one is for:
 
@@ -54,6 +54,38 @@ Here's what each one is for:
 
 On a minimal Debian install, some of these are already there. Listing them
 anyway keeps the setup reproducible.
+
+**Note**: 
+Must Create a snapshot using the following command so you can roll back if something goes wrong:
+
+```bash
+VBoxManage snapshot "VM name" take "justinstalled"
+```
+to roll back to a previous snapshot :
+```bash
+VBoxManage snapshot "VM name" restore "justinstalled"
+```
+
+before we begin :
+generate an ED25519 SSH key pair on the host machine:
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/ilyass
+```
+
+copy the public key (~/.ssh/ilyass.pub) into the VM user's ~/.ssh/authorized_keys.
+
+configure port forwarding:
+```
+Host port: 2222
+Guest port: 22
+```
+
+connect to the VM:
+```bash
+ssh -p 2222 -i ~/.ssh/ilyass ilyass@localhost
+```
+
+This allows SSH access using key-based authentication through the forwarded port.
 
 
 ### 3. Access Control Model
@@ -71,29 +103,39 @@ assigned once per role instead of per user.
 * `addgroup role` adds a new role group
 * `adduser user role` assigns the role to the user
 
-![roles screen](screenshots/roles.png)
+for example as root :
+```bash
+# Create the user
+adduser dev1
+
+# Add the user to the developer group
+adduser dev1 developer
+```
+
+![](screenshots/roles.png)
 
 for the Permissions every user must be able to have a role:
 - admin : can manage users, install packages, restart any service
 - developer: can read/write the shared directory, restart the service, he is not allowed to install packages or manage users
-- deploy: can restart the service, read the shared directory, but doesn't have the permission to write to shared directory or to install packages 
+- deploy: can restart the service, read the shared directory, but doesn't have the permission to write, to shared directory or to install packages 
+
 
 ### 4. Sudo Configuration
 
-you do not edit `/etc/sudoers` , but rather put privileges in `/etc/sudoers.d/` . All files are checked for syntax with `visudo`.
+you should not edit `/etc/sudoers` , but rather put privileges in `/etc/sudoers.d/`. All files are checked for syntax with `visudo`.
 
-| File                        | Content                                                                                                                          |
+| File                        | Content                                                                                                                         |
 |-----------------------------|---------------------------------------------------------------------------------------------------------------------------------|
-| `/etc/sudoers.d/admin`      | `%admin ALL=(ALL:ALL) ALL`                                                                                                                             |
-| `/etc/sudoers.d/developer`  | `%developer ALL=(root) NOPASSWD: /usr/bin/systemctl restart myservice, /usr/bin/systemctl restart myservice.service` |
-| `/etc/sudoers.d/deploy`     | `%deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart myservice, /usr/bin/systemctl restart myservice.service`   |
+| `/etc/sudoers.d/admin`      | `%admin ALL=(ALL:ALL) ALL`                                                                                                      |
+| `/etc/sudoers.d/developer`  | `%developer ALL=(root) NOPASSWD: /usr/bin/systemctl restart myservice, /usr/bin/systemctl restart myservice.service`            |
+| `/etc/sudoers.d/deploy`     | `%deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart myservice, /usr/bin/systemctl restart myservice.service`               |
 
 Created with:
-
-    visudo -f /etc/sudoers.d/admin
-    visudo -f /etc/sudoers.d/developer
-    visudo -f /etc/sudoers.d/deploy
-
+```bash
+visudo -f /etc/sudoers.d/admin
+visudo -f /etc/sudoers.d/developer
+visudo -f /etc/sudoers.d/deploy
+```
  for Least-privilege rules:
 
 - Privileges are granted to groups, never directly to users.
@@ -110,8 +152,10 @@ verify with :
 
 Only admin1 has full privileges. Any other role showing them is a policy failure.
 
-
 ![sudoers screen](screenshots/sudoers.png)
+
+check some other references that explain [the principle of least privilege](https://wiki.debian.org/sudo?pow_referer=#Principle_of_least_privilege) and [How to Set Up NOPASSWD sudo Safely](https://www.linuxfordevices.com/tutorials/linux/sudo-nopasswd)
+
 
 
 ### 5. Password Policy
@@ -119,41 +163,53 @@ Only admin1 has full privileges. Any other role showing them is a policy failure
 #### 5.1. Password expiration (chage)
 
 password aging is applied on a per-user basis with `chage`, which changes the relevant fields in `/etc/shadow`, this is the command used (for `admin1`, `dev1` and `deploy1`):
-
-    sudo chage -m 7 -M 90 -W 14 -I 30 <username>
-
+```bash
+sudo chage -m 7 -M 90 -W 14 -I 30 <username>
+```
 - `-m (7)`  : minimum days before the user may change the password
 - `-M (90)` : maximum days a password stays valid
 - `-W (14)` : days of warning shown before the password expires
-- `-I (30)` : days after expiration before the account is disabled
+- `-I (30)` : days after expiration before the account is disabled if the password dosn't changed
 
 the `/etc/shadow` (via `chage`) file we be changed but no manual edit should performed. you can verify with `sudo chage -l <username>`
 
 ![sudoers screen](screenshots/chage.png)
 
 
-#### 5.2. Account Lockout (PAM)  
+#### 5.2. Account Lockout (PAM)
+
+How PAM Handles Login Authentication?
+
+PAM is used for authentication on Linux systems. The pam_faillock.so module within PAM will count the number of failed login requests. 
+after a certain number of failed attempts, the user account will be locked for a period of time to prevent brute force attacks on the password.
+
+For login; First, `pam_faillock.so preauth` checks if the user is already locked. If the account is locked, login is refused.
+if the user is not locked, PAM moves to the next line.
+then, `pam_unix.so` checks the password. it also allows an empty password because of `nullok`.
+if the password is correct, `success=1` tells PAM to skip the next line `(authfail)`.
+if the password is wrong, `default=ignore` tells PAM to continue to the next line, where authfail records the failed attempt.
+
+If the password is correct, `authsucc` resets the failed login counter to zero.
+The `sufficient` option tells PAM that authentication can be accepted immediately if this module succeeds and no previous required module has failed.
+
+If PAM reaches pam_deny.so, access is refused immediately. This is a final safety check.
+Finally, pam_permit.so always returns success, but it cannot cancel a failure from a previous required module.
+
+so in this example after 3 failed logins, the account should be locked for 10 minutes (`pam_faillock`).
+
+```ini
+#Files changed
+- /etc/security/faillock.conf   : the lockout values
+- /etc/pam.d/common-auth        : counts failed logins
+- /etc/pam.d/common-account     : checks if the user account is allowed to log in. With `pam_faillock.so`, it checks whether the account is locked after authentication.
 
 
-After 3 failed logins, the account is locked for 10 minutes (`pam_faillock`).
-
-**Files changed**
-
-- `/etc/security/faillock.conf`: the lockout values
-- `/etc/pam.d/common-auth`: counts failed logins
-- `/etc/pam.d/common-account`: applies the lock
-
-**a. add to `/etc/security/faillock.conf`**
-
+# add to `/etc/security/faillock.conf`
     deny = 3
     fail_interval = 900
     unlock_time = 600
 
-- `deny = 3`: lock after 3 failed attempts
-- `fail_interval = 900`: the failures must happen within 15 minutes
-- `unlock_time = 600`: unlock automatically after 10 minutes
-
-**b. add to `/etc/pam.d/common-auth`**
+# add to /etc/pam.d/common-auth
 
     auth    required                    pam_faillock.so preauth
     auth    [success=1 default=ignore]  pam_unix.so nullok
@@ -162,35 +218,42 @@ After 3 failed logins, the account is locked for 10 minutes (`pam_faillock`).
     auth    requisite                   pam_deny.so
     auth    required                    pam_permit.so
 
+# add to /etc/pam.d/common-account
+    account required                    pam_faillock.so
+```
+
+**Note**: The counter data is stored in /var/run/faillock/
+
+
+![common-auth](screenshots/PAM-common-auth.png)
+
+![common-account](screenshots/PAM-common-account.png)
+
+- `deny = 3`: lock after 3 failed attempts
+- `fail_interval = 900`: the failures must happen within 15 minutes
+- `unlock_time = 600`: unlock automatically after 10 minutes
 - `preauth` (before the password check): refuses the login if the account is already locked
 - `authfail`: adds 1 to the failure counter after a wrong password
 - `authsucc`: resets the counter after a correct password
 
-![common-auth](screenshots/PAM-common-auth.png)
-
-**c. add to `/etc/pam.d/common-account`**
-
-    account required                    pam_faillock.so
-
-![common-account](screenshots/PAM-common-account.png)
+[check how to Ensure lockout for failed password attempts is configured (page 701)](https://www.itsecure.hu/wp-content/uploads/2023/12/CIS_Debian_Linux_11_Benchmark_v1.0.0.pdf)
 
 **Test**
 
-As root, `su` never asks for a password, so no failure is counted. Run the attempts from a non-root user:
+```bash
+# As root, `su` never asks for a password, so no failure is counted. Run the attempts from a non-root user:
 
-    su - usertest
-    su - dev1                           # wrong password 3 times
+    su - dev1   # wrong password 3 times
     exit
 
-Then as root:
+# Then as root:
 
-    sudo faillock --user dev1           # shows the failures
-    sudo faillock --user dev1 --reset   # unlock
+    faillock --user dev1           # shows the failures
+    faillock --user dev1 --reset   # unlock
 
+# Keep a root shell open while editing `/etc/pam.d/*`, in case of a mistake.
 
-Keep a root shell open while editing `/etc/pam.d/*`, in case of a mistake.
-
-
+```
 
 ### 6. Shared Directories  
 
@@ -203,59 +266,57 @@ Keep a root shell open while editing `/etc/pam.d/*`, in case of a mistake.
 - `projectrolerwx`: admin1, dev1 (read/write)
 - `projectroler-x`: deploy1 (read only)
 
-Create them and the test user:
+```bash
 
-    addgroup projectrolerwx
-    addgroup projectroler-x
-    adduser admin1 projectrolerwx
-    adduser dev1 projectrolerwx
-    adduser deploy1 projectroler-x
-    adduser usertest
+# Create them and the test user:
+addgroup projectrolerwx
+addgroup projectroler-x
+adduser admin1 projectrolerwx
+adduser dev1 projectrolerwx
+adduser deploy1 projectroler-x
+adduser usertest
 
-**Setup**
+# Setup
+mkdir /srv/project
+chown root:projectrolerwx /srv/project              # root owns the directory, so only root can change its permissions.
+chmod 2770 /srv/project                             # new files inherit the group (setgid)
+setfacl -m    g:projectroler-x:r-x  /srv/project    # give access to users in "projectroler-x" to read the directory
+setfacl -d -m g:projectrolerwx:rwx  /srv/project    # (default ACL) -> new file is group-writable
+setfacl -d -m g:projectroler-x:r-x  /srv/project    # new file is read-only
 
-    mkdir /srv/project
-    chown root:projectrolerwx /srv/project
-    chmod 2770 /srv/project
-    setfacl -m    g:projectroler-x:r-x  /srv/project
-    setfacl -d -m g:projectrolerwx:rwx  /srv/project
-    setfacl -d -m g:projectroler-x:r-x  /srv/project
 
-**Why**
+# Note: Default ACLs only apply to files created after they are set
 
-- `chown`: root owns the directory, so only root can change its permissions.
-- `chmod 2770`: setgid makes new files inherit the group `projectrolerwx`; others get no access.
-- `setfacl -m`: lets deploy1 enter and read the directory.
-- `setfacl -d` (default ACL): every new file is group-writable for `projectrolerwx` and read-only for `projectroler-x`, without any `chmod`.
+# Check the ACL
+getfacl /srv/project
 
-Default ACLs only apply to files created after they are set.
+# if want to apply even for files already created in the past 
+sudo setfacl -R -m g:projectrolerwx:rw /srv/project
+sudo setfacl -R -m g:projectroler-x:rx /srv/project
+chgrp -R projectrolerwx /srv/project
 
-**Check the ACL**
-
-    getfacl /srv/project
-    # default:group:projectrolerwx:rwx
-    # default:group:projectroler-x:r-x
-
-`default:` means the entry is inherited by every new file created in the directory. So a file created by dev1 is automatically `rw` for the group `projectrolerwx` (admin1 can edit it) and read-only for `projectroler-x`, without anyone running `chmod`.
+# Check the ACL
+getfacl -R /srv/project
+```
 
 **Test**
 
 Switch to each user with `su - <user>`, run the command, then `exit`.
-
-**dev1** (must work)
+```ini
+# dev1 (must work)
 
     su - dev1
     echo "hello" > /srv/project/b.txt     # create a file
     exit
 
-**admin1** (must work)
+# admin1 (must work)
 
     su - admin1
     echo "ok" >> /srv/project/b.txt       # edit dev1's file
     cat /srv/project/b.txt                # shows: hello / ok
     exit
 
-**deploy1** (read yes, write no)
+# deploy1 (read yes, write no)
 
     su - deploy1
     cat /srv/project/b.txt                # works
@@ -263,12 +324,11 @@ Switch to each user with `su - <user>`, run the command, then `exit`.
     touch /srv/project/c.txt              # Permission denied
     exit
 
-**usertest** (no access at all)
-
+# usertest (no access at all)
     su - usertest
     ls /srv/project                       # Permission denied
     exit
-
+```
 ![de](screenshots/shared-directory.png)
 
 
@@ -277,24 +337,23 @@ Switch to each user with `su - <user>`, run the command, then `exit`.
 
 `/srv/scratch` is a shared area where everyone can write, but users can only delete their own files.
 
-**Setup**
+```bash
 
-    mkdir -p /srv/scratch
-    chmod 1777 /srv/scratch
+# Setup
+mkdir -p /srv/scratch
+chmod 1777 /srv/scratch
+```
 
 **Why**
 
-- `777`: any user can create and edit files here.
+- `777`: any user can create files here.
 - `1` (sticky bit): a user can only delete or rename files they own. Root can delete anything.
 
-**Check**
-
-    ls -ld /srv/scratch      # drwxrwxrwt (the final "t" is the sticky bit)
-
-**Test**
-
-    su - dev1 -c 'touch /srv/scratch/a.txt'
-    su - deploy1 -c 'rm /srv/scratch/a.txt'    # rm: cannot remove ... Operation not permitted
+```bash
+# Test
+su - dev1 -c 'touch /srv/scratch/a.txt'
+su - deploy1 -c 'rm /srv/scratch/a.txt'    # rm: cannot remove ... Operation not permitted
+```
 
 ![sticky bit](screenshots/sticky-bit.png)
 
@@ -320,36 +379,41 @@ Which permission mechanism is used where, and why.
 Every user logs in with an SSH key. Password login is disabled.
 
 **1. Generate one key pair per user (on the client machine)**
-
-    ssh-keygen -t ed25519 -f ~/.ssh/vm_il_dev_admin1
-    ssh-keygen -t ed25519 -f ~/.ssh/vm_il_dev_dev1
-    ssh-keygen -t ed25519 -f ~/.ssh/vm_il_dev_deploy1
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/vm_il_dev_admin1
+ssh-keygen -t ed25519 -f ~/.ssh/vm_il_dev_dev1
+ssh-keygen -t ed25519 -f ~/.ssh/vm_il_dev_deploy1
+```
 
 **2. Install each public key on the server (as root, for each user)**
 
 Example for dev1:
-
+```bash
     mkdir -p /home/dev1/.ssh
     nano /home/dev1/.ssh/authorized_keys     # paste the content of vm_il_dev_dev1.pub
     chmod 700 /home/dev1/.ssh
     chmod 600 /home/dev1/.ssh/authorized_keys
     chown -R dev1:dev1 /home/dev1/.ssh
+```
 
 Same for `admin1` and `deploy1` with their own public key.
-The VM uses NAT, so a VirtualBox port forward is set: host `127.0.0.1:2224` → guest `22`.
+The VM uses NAT, so a VirtualBox port forward is set: host `127.0.0.1:2222` → guest `22`.
 
 **3. Test key login before disabling passwords**
-
-    ssh -p 2224 -i ~/.ssh/vm_il_dev_dev1 dev1@localhost
+```bash
+ssh -p 2222 -i ~/.ssh/vm_il_dev_dev1 dev1@localhost
+```
 
 It must open a shell without asking for the account password.
 
-**4. Disable password authentication in `/etc/ssh/sshd_config` on the server machine**
+**4. Disable password authentication in `/etc/ssh/sshd_config/1-disablepassword.conf` on the server machine**
 
-    PubkeyAuthentication yes
-    PasswordAuthentication no
-    KbdInteractiveAuthentication no
-    PermitRootLogin prohibit-password
+```text
+PubkeyAuthentication yes
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+```
 
 - `PubkeyAuthentication yes`: allow key login
 - `PasswordAuthentication no`: refuse password login
@@ -357,29 +421,32 @@ It must open a shell without asking for the account password.
 - `PermitRootLogin prohibit-password`: root can only log in with a key
 
 **5. Check and restart**
+```bash
+sshd -t
+systemctl restart ssh
+```
 
-    sshd -t
-    systemctl restart ssh
-
-**6. Proof**
+**6. test**
 
 Password login is refused:
-
-    ssh -p 2224 -o PubkeyAuthentication=no -o PreferredAuthentications=password dev1@localhost
-    # dev1@localhost: Permission denied (publickey).
-
+```bash
+ssh -p 2222 -o PubkeyAuthentication=no -o PreferredAuthentications=password dev1@localhost
+# dev1@localhost: Permission denied (publickey).
+```
 Key login succeeds:
 
-    ssh -p 2224 -i ~/.ssh/vm_il_dev_dev1 dev1@localhost 
-    # opens the shell of dev1, no password
+```bash
+ssh -p 2222 -i ~/.ssh/vm_il_dev_dev1 dev1@localhost 
+# opens the shell of dev1, no password
+```
 
 Effective server configuration (as root on the VM):
-
-    sshd -T | grep -iE 'passwordauthentication|kbdinteractiveauthentication|pubkeyauthentication'
-    # pubkeyauthentication yes
-    # passwordauthentication no
-    # kbdinteractiveauthentication no
-
+```bash
+sshd -T | grep -iE 'passwordauthentication|kbdinteractiveauthentication|pubkeyauthentication'
+# pubkeyauthentication yes
+# passwordauthentication no
+# kbdinteractiveauthentication no
+```
 
 ### 8. Verification Script
 
