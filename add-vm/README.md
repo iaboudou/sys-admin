@@ -1,6 +1,6 @@
 ### add-vm
 
-The goal of this `add-vm` is to reproduce the configurations from the `linux` and `login` automatically using Vagrant.
+The goal of this `add-vm` is to reproduce the configurations from the [linux](https://github.com/iaboudou/sys-admin/tree/main/linux) and [login](https://github.com/iaboudou/sys-admin/tree/main/login) automatically using Vagrant.
 instead of manually installing and configuring the server, all the required steps are defined in code and executed automatically when running: `vagrant up`
 
 ### Approach
@@ -12,12 +12,25 @@ The VM was packaged into a reusable Vagrant box using:
 vagrant package --base "vm" --output debian.box
 ```
 
+The box file is big, so it is stored on GitHub with **Git LFS** (Large File Storage):
+
+```bash
+git lfs install
+git lfs track "*.box"
+git add .gitattributes box/debian.box
+git commit -m "Add debian box with Git LFS"
+git push
+```
+
+To allow SSH connections to the VM using Vagrant's key, add its public key to the VM's authorized_keys and set the private key path using config.ssh.private_key_path.
+
 The generated debian.box file was then uploaded to GitHub, making it available for reuse in this project.
 here Vagrant downloads it by itself (`config.vm.box_url`).
 for the provisioning, When the machine starts, Vagrant runs two scripts with no questions:
    - `provision/linux.sh` sets up the network and the custom systemd service.
-   - `provision/login.sh` sets up users, groups, sudo, permissions and SSH.
-At the end, the `login` verification script runs to test the machine.
+   - `provision/login.sh` sets up users, groups, sudo, permissions and SSH.     
+
+At the end, the [verification script](https://github.com/iaboudou/sys-admin/blob/main/login/verify.sh) runs to test the machine.
 No one needs to type anything. The machine is ready and tested at the end.
 
 
@@ -30,7 +43,6 @@ Why this approach ?
 
     ![](screenshots/lsblk.png)
 
-another box can be used like [generic/debian12](https://portal.cloud.hashicorp.com/vagrant/discover/generic/debian12).
 
 ### Repository structure
 
@@ -58,8 +70,7 @@ Other architectures
 - **Apple Silicon Mac (ARM64):** VirtualBox does not work. Two things must change:
   - **Provider:** use QEMU (`vagrant-qemu` plugin) or VMware Fusion.
   - **Base box:** use an arm64 box, not an amd64 one.
-
-The Vagrant commands stay the same (`vagrant up`, `vagrant destroy`). The scripts in `provision/` do not change, because they do not depend on the CPU.
+for Apple Silicon Macs (ARM64), VirtualBox is not supported. You can use an ARM64 base box with an ARM-compatible provider such as QEMU or VMware Fusion. some alternatives that can be used: [Debian 11 ARM64](https://portal.cloud.hashicorp.com/vagrant/discover/bytesguy/debian-11-arm64), [Ubuntu Server 24.04 ARM64](https://portal.cloud.hashicorp.com/vagrant/discover/bytesguy/ubuntu-server-24.04-arm64), The Vagrant commands stay the same (`vagrant up`, `vagrant destroy`). The scripts in `provision/` do not change, because they do not depend on the CPU. for x86-64 also there many alternatives like [generic/debian12](https://portal.cloud.hashicorp.com/vagrant/discover/generic/debian12).
 
 
 ### Snapshots
@@ -149,3 +160,4 @@ vagrant up
 ### setup.sh
 If Vagrant is not installed and there are no admin rights, run `./setup.sh`.
 It installs Vagrant in `~/.local/bin`. It is only for x86-64 Linux.
+For other operating systems, download and install Vagrant using the [official installation guide](https://developer.hashicorp.com/vagrant/install).
