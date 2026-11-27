@@ -1,163 +1,268 @@
-### add-vm
+#### add-vm
 
-The goal of this `add-vm` is to reproduce the configurations from the [linux](https://github.com/iaboudou/sys-admin/tree/main/linux) and [login](https://github.com/iaboudou/sys-admin/tree/main/login) automatically using Vagrant.
-instead of manually installing and configuring the server, all the required steps are defined in code and executed automatically when running: `vagrant up`
+the `linux` and `login` projects rebuilt by one command (`vagrant up`), with no prompt.
 
-### Approach
+#### Approach
 
-The `base box approach` is used; start from a ready-made Debian box and handle the rest through provisioning scripts.
-The VM was packaged into a reusable Vagrant box using:
+**Minimal base box + provisioning** (no preseed/cloud-init).
+A stock minimal Debian box (`generic/debian12`) is configured entirely by the shell scripts in `provision/`.
 
-```bash
-vagrant package --base "vm" --output debian.box
+Why this approach:
+- It is faster to rebuild than building a custom image (Packer + preseed): `vagrant up` downloads the box once, then only the scripts run.
+- All configuration stays in short, readable, idempotent shell scripts, so every setting is visible in git.
+- The cost is that partitioning is fixed by the box (see Disk layout below).
+
+#### Disk layout
+
+The partitioning is fixed by the box. Result of `lsblk` on the built machine:
+
+```
+NAME   MAJ:MIN RM   SIZE RO TYPE MOUNTPOINTS
+sda      8:0    0   128G  0 disk
+├─sda1   8:1    0   487M  0 part /boot
+├─sda2   8:2    0   1.9G  0 part [SWAP]
+└─sda3   8:3    0 125.6G  0 part /
 ```
 
-The box file is big, so it is stored on GitHub with **Git LFS** (Large File Storage):
+| Partition |    Size   |  Mount  | Decided by |
+|-----------|-----------|---------|------------|
+| `sda1`    | 487 MB    | `/boot` |   the box  |
+| `sda2`    | 1.9 GB    |  swap   |   the box  |
+| `sda3`    | 125.6 GB  |   `/`   |   the box  |
 
-```bash
-git lfs install
-git lfs track "*.box"
-git add .gitattributes box/debian.box
-git commit -m "Add debian box with Git LFS"
-git push
-```
+Comparison with the `linux` project (manual install):
 
-To allow SSH connections to the VM using Vagrant's key, add its public key to the VM's authorized_keys and set the private key path using config.ssh.private_key_path.
+|                       |       `linux` project             |       this repository             |
+|-----------------------|-----------------------------------|-----------------------------------|
+| Scheme                | LVM, volume group `vg`            |   plain partitions, no LVM        |
+| `/`                   |       5 GB LV                     |   all remaining space (`sda3`)    |
+| `/home`               |      2 GB separate LV             |       not separate (inside `/`)   |
+| `/var`                |      2 GB separate LV             |       not separate (inside `/`)   |
+| swap                  |           1 GB LV                 |           1.9 GB partition        |
+| Free space in the VG  |       kept for `lvextend`         |               none (no VG)        |
 
-The generated debian.box file was then uploaded to GitHub, making it available for reuse in this project.
-here Vagrant downloads it by itself (`config.vm.box_url`).
-for the provisioning, When the machine starts, Vagrant runs two scripts with no questions:
-   - `provision/linux.sh` sets up the network and the custom systemd service.
-   - `provision/login.sh` sets up users, groups, sudo, permissions and SSH.     
+What the box decides: the partition table, the filesystem of `/`, `/boot` and swap, and the disk size (128 GB, virtual, thin-provisioned).
 
-At the end, the [verification script](https://github.com/iaboudou/sys-admin/blob/main/login/verify.sh) runs to test the machine.
-No one needs to type anything. The machine is ready and tested at the end.
+What provisioning could still add: a second virtual disk with LVM volumes for `/home` and `/var` (idempotent, each step guarded by a check). Not implemented: the layout stays the box's default.
 
-
-Why this approach ?
-- It is simple and fast: no need to install Debian again each time. The box already has Debian, so only the scripts run.
-- No questions: one command, `vagrant up`, builds the full machine. Nobody has to type anything.
-- The box is always the same, so the result is always the same.
-- Anyone can clone the repository and run `vagrant up` to automatically create the same configured machine using the provided scripts.
-- The box decides the disk partitions (they come from my `linux`). Provisioning does not change them. If needed, an extra disk could be added and mount with a script.
-
-    ![](screenshots/lsblk.png)
-
-
-### Repository structure
+#### Repository structure
 
 ```
 add-vm
 ├── README.md
 |── screenshots
 ├── Vagrantfile
-├── setup.sh             # installs Vagrant in the user folder (x86-64 Linux)
+├── setup.sh             # prepares the host (SSH key, known_hosts, Vagrantfile check)
 └── provision
-    ├── linux.sh         # linux configuration
-    ├── login.sh         # login configuration
+    ├── linux.sh         # linux project configuration
+    ├── login.sh         # login project configuration
+    └── verify.sh        # verification script of the login project (regression test)
+```
+
+#### Requirements
+
+- Vagrant (https://developer.hashicorp.com/vagrant/install#linux): `vagrant --version`
+- VirtualBox (x86-64): `VBoxManage --version`
+- Git
+
+#### Build
+
+```
+    git clone https://github.com/iaboudou/sys-admin.git
+    cd add-vm
+    ./setup.sh
+    vagrant up
+```
+
+Before the first build, `./setup.sh` generates the SSH key (`~/.ssh/vm_vagrant`) used by the Vagrantfile, removes the old host key from `known_hosts` and checks the Vagrantfile syntax. Then `vagrant up` builds and configures the machine.
+
+Rebuild from scratch:
+
+```
+    vagrant destroy -f
+    vagrant up
+```
+
+Re-run the provisioning on a running machine:
+
+```
+    vagrant provision
+```
+
+#### Vagrantfile
+
+|           Setting         |       Value                                                                  |
+|---------------------------|------------------------------------------------------------------------------|
+| `config.vm.box`           | `generic/debian12`                                                           |
+| `config.vm.box_version`   | `4.3.12`                                                                     |
+| `config.vm.hostname`      | `hostilyass`                                                                 |
+|       `vb.name`           | `hostilyass`                                                                 |
+|       `vb.memory`         | `2048`                                                                       |
+|       `vb.cpus`           | `2`                                                                          |
+|       provisioners        | `provision/linux.sh`, then `provision/login.sh`, then `provision/verify.sh`  |
+
+`verify.sh` runs as the last provisioner on every `vagrant up` / `vagrant provision`. If an assertion fails, the script exits with code 1 and Vagrant reports an error: this is intentional, the machine did not reach the expected state.
+
+#### SSH key
+
+`login.sh` needs an input given by the Vagrantfile:
+
+- `PUBLIC_KEY` (environment variable): public SSH key installed for `admin1`, `dev1`, `deploy1`.
+
+The Vagrantfile reads the key from `~/.ssh/vm_vagrant.pub`, which is created by `./setup.sh` if it does not exist. If this file is missing, `PUBLIC_KEY` is empty and nobody can log in over SSH as `admin1`, `dev1` or `deploy1` (`vagrant ssh` still works, so `verify.sh` still runs). So run `./setup.sh` before `vagrant up`.
+
+Connect with:
+
+```
+    ssh -p 2222 -i ~/.ssh/vm_vagrant dev1@127.0.0.1
+```
+
+After a rebuild (`vagrant destroy -f` then `vagrant up`), if SSH reports `REMOTE HOST IDENTIFICATION HAS CHANGED`, remove the old host key from `known_hosts` (`./setup.sh` does it too):
+
+```
+    ssh-keygen -f ~/.ssh/known_hosts -R '[127.0.0.1]:2222'
+```
+
+#### provision/linux.sh
+
+Both scripts start with `set -euo pipefail` (stop on any error) and `export DEBIAN_FRONTEND=noninteractive` (no debconf question).
+
+1. Users and passwords:
+   - `root:123`
+   - user `ilyass` created only if missing (`id ilyass || useradd -m ilyass`), shell `/bin/bash`, password `ilyass`.
+2. Static IPv4 and DNS:
+   - `/etc/network/interfaces` is rewritten (`lo` + `eth0` static: `10.0.2.15/24`, gateway `10.0.2.2`).
+   - `/etc/resolv.conf` is recreated with `nameserver 1.1.1.1`.
+3. Service script: 
+    - `/home/myservice.sh` (executable). Every 2 s it checks `/home/myservice_check.txt`, recreates it if missing, and logs `file recreated` / `file exists`.
+4. systemd unit: 
+    - `/etc/systemd/system/myservice.service` (`Type=simple`, `Restart=always`, `WantedBy=multi-user.target`).
+5. Start: 
+    - `systemctl daemon-reload`
+    - `systemctl enable myservice.service`
+    - `systemctl restart myservice.service`
+
+Check:
+
+```
+    systemctl is-enabled myservice.service
+    systemctl is-active myservice.service
+    journalctl -u myservice.service -n 10
+```
+
+#### provision/login.sh
+
+1. Packages: 
+    - `apt-get update`, 
+    - `apt-get install -y openssh-server acl passwd libpam-modules sudo`.
+2. Users (created only if missing, shell `/bin/bash`): 
+    - `admin1`, `dev1`, `deploy1`. Passwords: `admin1:admin1`, `dev1:dev1`, `deploy1:deploy1`, `vagrant:123`.
+3. Role groups (created only if missing): 
+    - `admin`, `developer`, `deploy`; each user is added to its role group.
+4. sudo (`/etc/sudoers.d/`, mode `440`, checked with `visudo -cf`): 
+
+
+   | File           | Rule                                                                                                                 |
+   |----------------|----------------------------------------------------------------------------------------------------------------------|
+   | `admin`        | `%admin ALL=(ALL:ALL) ALL`                                                                                           |
+   | `developer`    | `%developer ALL=(root) NOPASSWD: /usr/bin/systemctl restart myservice, /usr/bin/systemctl restart myservice.service` |
+   | `deploy`       | `%deploy ALL=(root) NOPASSWD: /usr/bin/systemctl restart myservice, /usr/bin/systemctl restart myservice.service`    |
+
+
+5. Password aging: 
+    - `chage -m 7 -M 90 -W 14 -I 30` on the 3 users.
+6. Account lockout (PAM `pam_faillock`)
+    - `/etc/security/faillock.conf`: `deny = 3`, `fail_interval = 900`, `unlock_time = 600`.
+    - `/etc/pam.d/common-auth` and `/etc/pam.d/common-account` are rewritten with the faillock lines.
+7. Shared directories
+    - groups `projectrolerwx` (`admin1`, `dev1`) and `projectroler-x` (`deploy1`).
+    - `/srv/project`: `chown root:projectrolerwx`, `chmod 2770`, ACL `g:projectroler-x:r-x`, default ACL `g:projectrolerwx:rwx` and `g:projectroler-x:r-x`.
+    - `/srv/scratch`: `chmod 1777` (sticky bit).
+8. SSH
+    - `/etc/ssh/sshd_config` rewritten: `PubkeyAuthentication yes`, `PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `PermitRootLogin prohibit-password`, `HostKey /etc/ssh/ssh_host_ed25519_key`.
+    - `PUBLIC_KEY` written to `~/.ssh/authorized_keys` of each user (`700` on `.ssh`, `600` on the file, owned by the user).
+9. Apply: 
+    - `sshd -t`, `systemctl enable ssh`, `systemctl restart ssh`.
+
+#### Idempotency
+
+every step is safe to run several times:
+
+- users and groups: created only if missing;
+- config files (`sudoers.d`, `faillock.conf`, PAM, `sshd_config`, `authorized_keys`, `interfaces`, `resolv.conf`, unit file): overwritten with `>`, never appended, so nothing is duplicated;
+- `mkdir -p`, `chmod`, `chown`, `setfacl`, `chage`, `usermod -aG`: same result on every run.
+
+Test:
+
+```
+    vagrant provision
+    vagrant provision
+```
+
+Both runs must end without error.
+
+![screenshots/a.png](screenshots/a.png)
+![screenshots/a.png](screenshots/b.png)
+
+#### Verification (regression test)
+
+`provision/verify.sh` is the verification script of the login project, unchanged. It is also the last provisioner of the Vagrantfile (named `verify`), and it runs as root on the VM. To run it alone on the running machine:
+
+```
+    vagrant provision --provision-with verify
+    echo $?
+```
+
+Expected: only `PASS` lines, exit code `0`.
+
+Proof after a rebuild:
+
+```
+    vagrant destroy -f
+    vagrant up
+    vagrant provision
+    echo $?
+```
+
+Output:
+
+![screenshots/a.png](screenshots/c.png)
+
+#### Snapshots
+
+```
+    vagrant snapshot save clean      # take a snapshot
+    # make a change, e.g. touch /home/proof.txt
+    vagrant snapshot restore clean   # rollback
+    vagrant snapshot list
+    vagrant snapshot delete clean
 ```
 
 
-### Architecture
+- you can use a snapshot to experiment safely on a machine: test a risky change (PAM, sshd, sudoers) and come back to the exact previous state in seconds.
+- Rebuild from code when the machine must match what the repository defines: after a change in the scripts, when the state is unknown or drifted, for a second machine or a colleague. a snapshot captures a moment (and ages with the box); the code captures the intent.
 
-Built on
-- CPU: x86-64 (Intel / AMD)
-- Provider: VirtualBox
-- Base box: `debian-custom` (amd64), downloaded from GitHub
+#### Architecture
 
-Other architectures
-- **Intel Mac (x86-64):** same as above. VirtualBox works.
-- **Apple Silicon Mac (ARM64):** VirtualBox does not work. Two things must change:
-  - **Provider:** use QEMU (`vagrant-qemu` plugin) or VMware Fusion.
-  - **Base box:** use an arm64 box, not an amd64 one.
-for Apple Silicon Macs (ARM64), VirtualBox is not supported. You can use an ARM64 base box with an ARM-compatible provider such as QEMU or VMware Fusion. some alternatives that can be used: [Debian 11 ARM64](https://portal.cloud.hashicorp.com/vagrant/discover/bytesguy/debian-11-arm64), [Ubuntu Server 24.04 ARM64](https://portal.cloud.hashicorp.com/vagrant/discover/bytesguy/ubuntu-server-24.04-arm64), The Vagrant commands stay the same (`vagrant up`, `vagrant destroy`). The scripts in `provision/` do not change, because they do not depend on the CPU. for x86-64 also there many alternatives like [generic/debian12](https://portal.cloud.hashicorp.com/vagrant/discover/generic/debian12).
+|           | x86-64 (Intel / AMD)              | Apple Silicon (ARM64)                     |
+|-----------|-----------------------------------|-------------------------------------------|
+| Provider  | VirtualBox (used here)            | QEMU (`vagrant-qemu`) or VMware Fusion    |
+| Box       | `generic/debian12` 4.3.12 (amd64) | an arm64 Debian 12 box                    |
 
 
-### Snapshots
+Built on: x86-64, VirtualBox, `generic/debian12` 4.3.12.
 
-1. Procedure
-```bash
-# Take a snapshot
-vagrant snapshot save clean-state
+On Apple Silicon only the provider, the provider block of the Vagrantfile and the box change. The scripts in `provision/` contain no architecture-specific package, URL or box name. The network interface name (`eth0`) and the box name are the only values to adapt.
 
-# Make a change
-vagrant ssh -c "touch ~/test-file"
+#### Credentials (lab only)
 
-# Go back to a snapshot
-vagrant snapshot restore clean-state
+| User      | Password      | Role          |
+|-----------|---------------|---------------|
+| root      | 123           |               |
+| vagrant   | 123           |               |
+| ilyass    | ilyass        |               |
+| admin1    | admin1        | admin         |
+| dev1      | dev1          | developer     |
+| deploy1   | deploy1       | deploy        |
 
-# Check that the change is gone
-vagrant ssh -c "ls ~/test-file"
-```
-
-Other useful commands:
-```bash
-vagrant snapshot list
-vagrant snapshot delete clean-state
-```
-
-2. When to use a snapshot ?
-- To test something risky and go back fast (for example, a change in the SSH or sudo configuration).
-- Before an experiment, when the machine is in a good state.
-- A snapshot saves one moment of the machine. It is quick, but it is local to one computer.
-
-3. When to rebuild from code ?
-- When the machine is broken and the cause is not clear.
-- When the machine has changed by hand and no longer matches the scripts.
-- When a new person needs the same machine, or a second machine is needed.
-- A rebuild uses the code (`vagrant destroy -f` then `vagrant up`), so the result is always the same and can be shared through git.
-
-4. Short rule :
-- A snapshot saves one moment. The code saves what the machine must always be.
-
-
-### Rebuild
-
-1. run the command
-```bash
-vagrant destroy -f
-vagrant up
-```
-
-2. Result
-- The machine was rebuilt with no manual input.
-- `vagrant up` finished with no error.
-- The `login` verification script ran at the end, unchanged, and every check passed.
-- Rebuild time: about 2 to 6 min.
-
-![](screenshots/linux.png)
-
-![](screenshots/login.png)
-
-![](screenshots/verify.png)
-
-The scripts can run many times with the same result.
-```bash
-vagrant provision
-```
-It finishes with no error, and nothing is duplicated (no repeated users, no repeated lines in config files).
-
-### Users
-
-| User      | Role          |
-|-----------|---------------|
-| root      | -             |
-| ilyass    | -             |
-| admin1    | admin         |
-| dev1      | developer     |
-| deploy1   | deploy        |
-
-
-### How to build
-Requirements: Git, Vagrant, VirtualBox, and internet (the box and the verification script are downloaded).
-```bash
-git clone https://github.com/iaboudou/sys-admin.git
-cd sys-admin/add-vm
-vagrant up
-```
-
-
-### setup.sh
-If Vagrant is not installed and there are no admin rights, run `./setup.sh`.
-It installs Vagrant in `~/.local/bin`. It is only for x86-64 Linux.
-For other operating systems, download and install Vagrant using the [official installation guide](https://developer.hashicorp.com/vagrant/install).
+SSH password login is disabled: only key login works.
