@@ -1,69 +1,51 @@
 Vagrant.configure("2") do |config|
-  config.vm.box = "generic/debian12"
-  config.vm.box_version = "4.3.12"
+  config.vm.box = "debian-custom"
+  config.vm.box_url = "https://media.githubusercontent.com/media/iaboudou/sys-admin/main/box/debian.box"
+  config.ssh.username = "ilyass"
+  config.ssh.private_key_path = "~/.vagrant.d/insecure_private_keys/vagrant.key.ed25519"
+  config.ssh.insert_key = false
+  
 
-  # hostilyass machine (gateway + dns + dhcp)
-  config.vm.define "hostilyass" do |gw|
-    gw.vm.hostname = "hostilyass"
-
-    gw.vm.provider "virtualbox" do |vb|
-      vb.name   = "hostilyass"
-      vb.memory = 1024
-      vb.cpus   = 1
+  config.vm.define "gateway" do  |gateway|
+    gateway.vm.hostname = "gateway"
+    gateway.vm.provider "virtualbox" do |gw|
+      gw.name   = "gateway"
+      gw.memory = 2048
+      gw.cpus   = 2
     end
-
-    gw.vm.network "private_network", ip: "192.168.10.1", netmask: "255.255.255.0", virtualbox__intnet: "subnet-a"
-    gw.vm.network "private_network", ip: "192.168.20.1", netmask: "255.255.255.0", virtualbox__intnet: "subnet-b"
-
-    gw.vm.provision "gateway", type: "shell", path: "provision/gateway.sh"
-    gw.vm.provision "dhcp",    type: "shell", path: "provision/dhcp.sh"
-    gw.vm.provision "dns",     type: "shell", path: "provision/dns.sh"
+    gateway.vm.network "private_network", ip: "192.168.10.1", netmask: "255.255.255.0", virtualbox__intnet: "subnet-a"
+    gateway.vm.network "private_network", ip: "192.168.20.1", netmask: "255.255.255.0", virtualbox__intnet: "subnet-b"
+    gateway.vm.provision "gateway", type: "shell", path: "provision/gateway.sh"
+    gateway.vm.provision "dns", type: "shell", path: "provision/dns.sh"
+    gateway.vm.provision "dhcp", type: "shell", path: "provision/dhcp.sh"
   end
 
-  # machine A
-  config.vm.define "pc-1" do |ca|
-    ca.vm.hostname = "pc-1"
 
-    ca.vm.provider "virtualbox" do |vb|
-      vb.name   = "pc-1"
-      vb.memory = 1024
-      vb.cpus   = 1
+  config.vm.define "pc-a" do |pca|
+    pca.vm.hostname = "pcA"
+    pca.vm.provider "virtualbox" do |a|
+      a.name   = "pc-a"
+      a.memory = 2048
+      a.cpus   = 1
     end
-
-    ca.vm.network "private_network", auto_config: false, virtualbox__intnet: "subnet-a", mac: "080027000a02"
-    ca.vm.provision "pc-a", type: "shell", inline: <<~SHELL
-      cat >> /etc/network/interfaces <<'EOF'
-      auto eth1
-      iface eth1 inet dhcp
-EOF
-
-cat > /etc/resolv.conf <<'EOF'
-nameserver 192.168.10.1
-nameserver 1.1.1.1
-EOF
-      # ln -sf /run/resolvconf/resolv.conf /etc/resolv.conf
-      systemctl restart networking
-    SHELL
+    pca.vm.network "private_network", auto_config: false, virtualbox__intnet: "subnet-a", mac: "080027000a02"
+    pca.vm.provision "pc-a", type: "shell", path: "provision/pc-a.sh"
   end
 
-  # machine B
-  config.vm.define "pc-2" do |ca|
-    ca.vm.hostname = "pc-2"
 
-    ca.vm.provider "virtualbox" do |vb|
-      vb.name   = "pc-2"
-      vb.memory = 1024
-      vb.cpus   = 1
+  config.vm.define "pc-b" do |pcb|
+    pcb.vm.hostname = "pcB"
+    pcb.vm.provider "virtualbox" do |b|
+      b.name   = "pc-b"
+      b.memory = 2048
+      b.cpus   = 1
     end
+    pcb.vm.network "private_network", auto_config: false, virtualbox__intnet: "subnet-b"
+    pcb.vm.provision "pc-b", type: "shell", path: "provision/pc-b.sh"
+  end
 
-    ca.vm.network "private_network", ip: "192.168.20.2", netmask: "255.255.255.0", virtualbox__intnet: "subnet-b"
-    ca.vm.provision "pc-b", type: "shell", inline: <<-SHELL
-      ip route replace 192.168.10.0/24 via 192.168.20.1 dev eth1
-      echo "nameserver 192.168.20.1" > /etc/resolv.conf
-    SHELL
-    end
 
   config.vm.provision "linux", type: "shell", path: "provision/linux.sh"
-  config.vm.provision "login", type: "shell", path: "provision/login.sh", env: { "PUBLIC_KEY" => File.exist?(File.expand_path("~/.ssh/vm_vagrant.pub")) ? File.read(File.expand_path("~/.ssh/vm_vagrant.pub")).strip : "" }
-  config.vm.provision "verify", type: "shell", path: "provision/verify.sh"
+  config.vm.provision "login", type: "shell", path: "provision/login.sh"
+  config.vm.provision "shell" do |s|  s.inline = "curl -fsSL https://raw.githubusercontent.com/iaboudou/sys-admin/main/login/verify.sh | bash" end
 end
