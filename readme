@@ -1,42 +1,44 @@
 This project shows how to build a complete computer system step by step.
 We install a Linux server, create users and control what each one can do,
-set up virtual machines and networks, allow safe remote access, and scan the 
-system to find security problems. We also explain the common problems that can 
-happen at each step and how to fix them.
+set up virtual machines and networks, allow safe remote access, and scan
+the system to find security problems. We also explain the common problems
+that can happen at each step and how to fix them.
 
                                LINUX
 
-1. build a small Linux server inside a virtual machine, so anyone can do it again:
-    We have installed a minimal version of Debian. This has no graphical interface.
-    We divide the disk into different sections. We have: a section for /, a section 
-    for /home, a section for /var, a section for /swap (extra RAM)
+1. build a small Linux server inside a virtual machine, so anyone can do
+it again:
+    We have installed a minimal version of Debian. This has no graphical 
+    interface. We divide the disk into different sections. We  have:
+    a section for /, a section for /home, a section for /var, a section
+    for /swap (extra RAM)
 2. Making a disk part bigger:
     We can increase the size of a section without deleting any data.
 3. network:
-    Static IP and nameserver set up. We can check that internet and domains are
-    working by running ping.
+    Static IP and nameserver set up. We can check that internet and
+    domains are working by running ping.
 4. Our own service:
-    We created a small script that will check every 2 seconds if a file is exists.
-    If it isn’t, it creates a new file. We have used systemd to allow our service
-    to always run. We tested that our service will always restart by deleting the
-    file, killing the process and restarting the machine. In all cases, the 
-    service was restored.
+    We created a small script that will check every 2 seconds if a file 
+    is exists. If it isn’t, it creates a new file. We have used systemd
+    to allow our service to always run. We tested that our service will
+    always restart by deleting the file, killing the process and
+    restarting the machine. In all cases, the service was restored.
 5. Boot analysis:
     We use a command to see which parts of the system start slowly.
 
                                LOGIN
 
-We set access controls on a common Linux server. Each role (admin, developper, deployer)
-only have specific rights to allow them to perform their task. This follows the
-principle of least privilige.
+We set access controls on a common Linux server. Each role (admin,
+developper, deployer) only have specific rights to allow them to perform
+their task. This follows the principle of least privilige.
 
 What is achieved?
 
-User and Group management: one group created for each role. This means rights are
-assigned to the role rather than to individuals.
+User and Group management: one group created for each role. This means
+rights are assigned to the role rather than to individuals.
 Sudo: Admin has full rights. Devs and Deployers can only restart the service.
-Password policies: Passwords will have an expiry date. If a user attemps to login
-incorrectly 3 times, they will be locked out for 10 minutes.
+Password policies: Passwords will have an expiry date. If a user attemps to
+login incorrectly 3 times, they will be locked out for 10 minutes.
 Shared directories: Project directory. Developers can read and write, Deployers
 can only read. Scratch directory. All users can write. However, users cannot
 delete others files.
@@ -47,13 +49,23 @@ ensure the rules are working correctly.
 
                                ADD-VM
 
-This is an automatic rebuild of the previous two projects (Linux server and login) using a 
-single command: 'vagrant up'. There are no questions to answer and no manual steps to follow.
+This is an automatic rebuild of the previous (Linux server and login) using a
+single command: 'vagrant up'. There are no questions to answer and no manual
+steps to follow.
 
-We start from a preconfigured minimal Debian machine (a “box”) and configure it using brief shell scripts.
-There is one script to build Linux server: network, DNS and our own service.
-A second script configures users, groups, sudo rules, password policy, shared folders and secure ssh.
-A third script executes all the security tests. The build will fail if any one test fails.
-All scripts can be run multiple times and will have the same result.
-this approch is fast to rebuild. All setting is visible in git.
-The only limitation is the disk layout is fixed by the box
+We start from a preconfigured minimal Debian machine (a “box”) and configure
+it using brief shell scripts. There is one script to build Linux server:
+network, DNS and our own service. A second script configures users, groups,
+sudo rules, password policy, shared folders and secure ssh. A third script
+executes all the security tests. The build will fail if any one test fails.
+All scripts can be run multiple times and will have the same result. this 
+approch is fast to rebuild. All setting is visible in git.
+
+                               CONNECT
+
+A dual subnet, routed network is created using code.
+Typing ‘vagrant up’ generates 3 virtual machines; a gateway and two client
+PCs (pc-a and pc-b). The gateway allows communication between the subnets.
+It provides internet connectivity using NAT. It also has DHCP and DNS (provided
+by dnsmasq). The gateway has an nftables firewall which by default denies all 
+traffic. It permits ICMP and one service (SSH from subnet A to subnet B).
