@@ -1,3 +1,11 @@
+
+ ____  __   __ ____          _    ____  __  __ ___ _   _ 
+/ ___| \ \ / // ___|        / \  |  _ \|  \/  |_ _| \ | |
+\___ \  \ V / \___ \       / _ \ | | | | |\/| || ||  \| |
+ ___) |  | |   ___) |     / ___ \| |_| | |  | || || |\  |
+|____/   |_|  |____/     /_/   \_\____/|_|  |_|___|_| \_|
+
+
 This project shows how to build a complete computer system step by step.
 We install a Linux server, create users and control what each one can do,
 set up virtual machines and networks, allow safe remote access, and scan
